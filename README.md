@@ -45,7 +45,7 @@ uv run python examples/run_shell.py
 uv run python examples/run_python.py
 uv run python examples/extend_policy.py
 uv run python examples/extend_python_api.py
-uv run pytest tests/ -v                    # 216 tests
+uv run pytest tests/ -v                    # 251 tests
 ```
 
 ## Examples: what's allowed and what's denied
@@ -69,7 +69,7 @@ echo $(whoami)                      # ✗ rejected: "Forbidden token: $("
 echo $HOME                          # ✗ rejected: "Expansions are not supported"
 
 # DENIED — globbing
-ls *.py                             # ✗ rejected: "Forbidden token: *"
+ls *.py                             # ✗ rejected: "Glob character not allowed in shell words: *"
 
 # DENIED — command not in policy
 rm -rf /                            # ✗ rejected: "Command not allowlisted: rm"
@@ -201,3 +201,9 @@ Registered functions are wrapped with:
 - Argument type checking
 - Exception sanitization (no leaking internals)
 - Name validation (lowercase snake_case, cannot shadow builtins)
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the full security architecture, defense-in-depth
+layers, threat model, and details on how `python`/`python3` commands in shell input
+are intercepted and routed through the Python AST validator.

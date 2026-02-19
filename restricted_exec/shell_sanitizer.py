@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import bashlex
 
@@ -30,16 +30,25 @@ class Step:
 
 
 @dataclass
+class PythonStep:
+    """A step holding inline Python code (from python3 -c '...') for AST-validated execution."""
+    python_src: str
+    redirect: Redirect = field(default_factory=Redirect)
+
+
+@dataclass
 class Plan:
     policy_id: str
     policy_version: str
-    steps: List[Step]
+    steps: List[Union[Step, PythonStep]]
     explain: Dict[str, Any]
 
 
 # ---- Early deny on raw input ----
 
-FORBIDDEN_TOKENS = {"$(", "`", "*", "?", "<(", ">("}
+FORBIDDEN_TOKENS = {"$(", "`", "<(", ">("}
+GLOB_CHARS = {"*", "?"}
+PYTHON_COMMANDS = frozenset({"python", "python3"})
 
 
 def _deny_if_contains_forbidden_raw(src: str) -> None:
@@ -106,11 +115,16 @@ def _compile_node(
 
     if kind == "pipeline":
         # bashlex pipeline: parts = [command, pipe, command, pipe, ...]
+        pipeline_start = len(out_steps)
         for part in node.parts:
             part_kind = getattr(part, "kind", None)
             if part_kind == "pipe":
                 continue  # pipe nodes are just separators
             _compile_node(policy, part, out_steps, notes)
+        # Deny Python steps in pipelines — piping to/from inline Python is not supported
+        for s in out_steps[pipeline_start:]:
+            if isinstance(s, PythonStep):
+                raise ShellDenied("Piping to/from inline Python is not supported")
         notes.append("Pipeline compiled as stdout->stdin wiring during execution")
         return
 
@@ -123,15 +137,15 @@ def _compile_node(
     raise ShellDenied(f"Unsupported shell construct: {kind}")
 
 
-def _compile_command(policy: EnginePolicy, cmd_node: Any) -> Step:
+def _compile_command(policy: EnginePolicy, cmd_node: Any) -> Union[Step, PythonStep]:
     redirect = Redirect()
-    words: List[str] = []
+    word_nodes: List[Any] = []
 
     for part in cmd_node.parts:
         part_kind = getattr(part, "kind", None)
 
         if part_kind == "word":
-            words.append(_word_to_literal(part))
+            word_nodes.append(part)
 
         elif part_kind == "redirect":
             op = getattr(part, "type", None)
@@ -151,8 +165,18 @@ def _compile_command(policy: EnginePolicy, cmd_node: Any) -> Step:
         else:
             raise ShellDenied(f"Unsupported command part: {part_kind}")
 
-    if not words:
+    if not word_nodes:
         raise ShellDenied("Empty command")
+
+    # Extract first word to identify the command
+    prog = _word_to_literal(word_nodes[0])
+
+    # Intercept python/python3 before the allowlist check
+    if prog in PYTHON_COMMANDS:
+        return _compile_python_command(prog, word_nodes[1:], redirect)
+
+    # Extract remaining words for shell command processing
+    words = [prog] + [_word_to_literal(n) for n in word_nodes[1:]]
 
     # Deny backgrounding in word content
     for w in words:
@@ -160,7 +184,6 @@ def _compile_command(policy: EnginePolicy, cmd_node: Any) -> Step:
             raise ShellDenied("Backgrounding (&) is not supported")
 
     # Map first word to allowlisted command_id
-    prog = words[0]
     if prog not in policy.commands:
         raise ShellDenied(f"Command not allowlisted: {prog}")
 
@@ -191,6 +214,33 @@ def _compile_command(policy: EnginePolicy, cmd_node: Any) -> Step:
     return Step(command_id=prog, args=provided_args, redirect=redirect)
 
 
+def _compile_python_command(
+    prog: str,
+    arg_nodes: List[Any],
+    redirect: Redirect,
+) -> PythonStep:
+    """
+    Handle `python3 -c "code"` by extracting the code for AST validation.
+    Denies all other python invocation forms (scripts, modules, interactive).
+    """
+    if not arg_nodes:
+        raise ShellDenied(f"Bare '{prog}' (interactive mode) is not allowed")
+
+    flag = _word_to_literal(arg_nodes[0])
+    if flag != "-c":
+        raise ShellDenied(
+            f"Only '{prog} -c <code>' is allowed; got: {prog} {flag}"
+        )
+
+    if len(arg_nodes) != 2:
+        raise ShellDenied(
+            f"'{prog} -c' requires exactly one code argument, got {len(arg_nodes) - 1}"
+        )
+
+    python_src = _python_source_literal(arg_nodes[1])
+    return PythonStep(python_src=python_src, redirect=redirect)
+
+
 def _word_to_literal(word_node: Any) -> str:
     """Extract a literal string from a bashlex word node, denying any expansions."""
     # If word has non-empty parts, it contains expansions (parameter, command subst, etc.)
@@ -205,5 +255,32 @@ def _word_to_literal(word_node: Any) -> str:
     # Final safety check: deny expansion markers that bashlex might not have parsed
     if "$" in w or "`" in w:
         raise ShellDenied("Expansions are not supported")
+
+    # Deny glob characters — harmless with shell=False but unexpected in shell commands.
+    # Python source extraction uses _python_source_literal() which skips this check.
+    for ch in GLOB_CHARS:
+        if ch in w:
+            raise ShellDenied(f"Glob character not allowed in shell words: {ch}")
+
+    return w
+
+
+def _python_source_literal(word_node: Any) -> str:
+    """Extract a literal string for Python source code from a bashlex word node.
+
+    Like _word_to_literal() but allows glob characters (* and ?) since they are
+    valid Python operators (multiplication, unpacking) and not shell-relevant here.
+    Still denies shell expansion markers ($ and backtick).
+    """
+    parts = getattr(word_node, "parts", None)
+    if parts:
+        raise ShellDenied("Expansions are not supported in Python source")
+
+    w = getattr(word_node, "word", None)
+    if w is None:
+        raise ShellDenied("Unreadable word")
+
+    if "$" in w or "`" in w:
+        raise ShellDenied("Shell expansions are not supported in Python source")
 
     return w

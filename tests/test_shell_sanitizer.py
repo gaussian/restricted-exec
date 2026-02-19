@@ -4,6 +4,7 @@ import pytest
 
 from restricted_exec.shell_sanitizer import (
     Plan,
+    PythonStep,
     ShellDenied,
     Step,
     sanitize_shell_to_plan,
@@ -96,11 +97,11 @@ class TestShellDenied:
             sanitize_shell_to_plan(basic_policy, "echo ${HOME}")
 
     def test_globbing_star(self, basic_policy):
-        with pytest.raises(ShellDenied, match="Forbidden token"):
+        with pytest.raises(ShellDenied, match="Glob character"):
             sanitize_shell_to_plan(basic_policy, "echo *")
 
     def test_globbing_question(self, basic_policy):
-        with pytest.raises(ShellDenied, match="Forbidden token"):
+        with pytest.raises(ShellDenied, match="Glob character"):
             sanitize_shell_to_plan(basic_policy, "echo file?.txt")
 
     def test_process_substitution(self, basic_policy):
@@ -193,3 +194,149 @@ class TestShellEdgeCases:
     def test_redirect_to_subdirectory(self, basic_policy):
         plan = sanitize_shell_to_plan(basic_policy, "echo hello > subdir/out.txt")
         assert plan.steps[0].redirect.stdout_path == "subdir/out.txt"
+
+
+class TestPythonCommandInterception:
+    """Tests for python/python3 -c interception in shell sanitizer."""
+
+    def test_python3_c_produces_python_step(self, basic_policy):
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'print(1)'")
+        assert len(plan.steps) == 1
+        assert isinstance(plan.steps[0], PythonStep)
+        assert plan.steps[0].python_src == "print(1)"
+
+    def test_python_c_produces_python_step(self, basic_policy):
+        plan = sanitize_shell_to_plan(basic_policy, "python -c 'x = 42'")
+        assert len(plan.steps) == 1
+        assert isinstance(plan.steps[0], PythonStep)
+        assert plan.steps[0].python_src == "x = 42"
+
+    def test_python3_c_double_quoted(self, basic_policy):
+        plan = sanitize_shell_to_plan(basic_policy, 'python3 -c "x = 42"')
+        assert isinstance(plan.steps[0], PythonStep)
+        assert plan.steps[0].python_src == "x = 42"
+
+    def test_python3_c_in_sequence_with_shell(self, basic_policy):
+        plan = sanitize_shell_to_plan(
+            basic_policy, "echo hello && python3 -c 'print(1)' && echo done"
+        )
+        assert len(plan.steps) == 3
+        assert isinstance(plan.steps[0], Step)
+        assert plan.steps[0].command_id == "echo"
+        assert isinstance(plan.steps[1], PythonStep)
+        assert plan.steps[1].python_src == "print(1)"
+        assert isinstance(plan.steps[2], Step)
+        assert plan.steps[2].command_id == "echo"
+
+    def test_python3_c_with_semicolon_sequence(self, basic_policy):
+        plan = sanitize_shell_to_plan(
+            basic_policy, "echo before ; python3 -c 'x = 1' ; echo after"
+        )
+        assert len(plan.steps) == 3
+        assert isinstance(plan.steps[1], PythonStep)
+
+    def test_python3_c_with_redirect(self, basic_policy):
+        plan = sanitize_shell_to_plan(
+            basic_policy, "python3 -c 'print(1)' > out.txt"
+        )
+        assert isinstance(plan.steps[0], PythonStep)
+        assert plan.steps[0].redirect.stdout_path == "out.txt"
+        assert plan.steps[0].redirect.stdout_append is False
+
+    def test_python3_c_with_append_redirect(self, basic_policy):
+        plan = sanitize_shell_to_plan(
+            basic_policy, "python3 -c 'print(1)' >> out.txt"
+        )
+        assert isinstance(plan.steps[0], PythonStep)
+        assert plan.steps[0].redirect.stdout_append is True
+
+    def test_python3_c_star_in_code_allowed(self, basic_policy):
+        """Python multiplication operator must be allowed in -c code."""
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'x = 2 * 3'")
+        assert isinstance(plan.steps[0], PythonStep)
+        assert plan.steps[0].python_src == "x = 2 * 3"
+
+    def test_python3_c_double_star_in_code_allowed(self, basic_policy):
+        """Python exponentiation operator must be allowed."""
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'x = 2 ** 3'")
+        assert isinstance(plan.steps[0], PythonStep)
+        assert "**" in plan.steps[0].python_src
+
+    def test_bare_python3_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="interactive mode"):
+            sanitize_shell_to_plan(basic_policy, "python3")
+
+    def test_bare_python_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="interactive mode"):
+            sanitize_shell_to_plan(basic_policy, "python")
+
+    def test_python3_script_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Only.*-c"):
+            sanitize_shell_to_plan(basic_policy, "python3 script.py")
+
+    def test_python3_module_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Only.*-c"):
+            sanitize_shell_to_plan(basic_policy, "python3 -m json.tool")
+
+    def test_python3_version_flag_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Only.*-c"):
+            sanitize_shell_to_plan(basic_policy, "python3 --version")
+
+    def test_python3_c_extra_args_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="exactly one code argument"):
+            sanitize_shell_to_plan(basic_policy, "python3 -c 'print(1)' extra")
+
+    def test_python3_c_no_code_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="exactly one code argument"):
+            sanitize_shell_to_plan(basic_policy, "python3 -c")
+
+    def test_python3_in_pipeline_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Piping.*inline Python"):
+            sanitize_shell_to_plan(
+                basic_policy, "echo hello | python3 -c 'print(1)'"
+            )
+
+    def test_python3_pipe_to_shell_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Piping.*inline Python"):
+            sanitize_shell_to_plan(
+                basic_policy, "python3 -c 'print(1)' | cat"
+            )
+
+    def test_python3_c_shell_expansion_in_code_denied(self, basic_policy):
+        """Shell expansion markers in Python code must still be denied."""
+        with pytest.raises(ShellDenied):
+            sanitize_shell_to_plan(basic_policy, "python3 -c 'x = $(whoami)'")
+
+    def test_plan_metadata_with_python_step(self, basic_policy):
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'x = 1'")
+        assert plan.policy_id == "test"
+        assert plan.policy_version == "0.1"
+
+
+class TestGlobTokenMovedToPerWord:
+    """Verify glob denial moved from FORBIDDEN_TOKENS to _word_to_literal."""
+
+    def test_star_in_shell_arg_still_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Glob character"):
+            sanitize_shell_to_plan(basic_policy, "echo *")
+
+    def test_question_in_shell_arg_still_denied(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Glob character"):
+            sanitize_shell_to_plan(basic_policy, "echo file?.txt")
+
+    def test_star_in_python_code_allowed(self, basic_policy):
+        """Star moved out of FORBIDDEN_TOKENS, so python -c can use it."""
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'x = 2 * 3'")
+        assert isinstance(plan.steps[0], PythonStep)
+
+    def test_dollar_paren_still_denied_early(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Forbidden token"):
+            sanitize_shell_to_plan(basic_policy, "echo $(whoami)")
+
+    def test_backtick_still_denied_early(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Forbidden token"):
+            sanitize_shell_to_plan(basic_policy, "echo `whoami`")
+
+    def test_process_substitution_still_denied_early(self, basic_policy):
+        with pytest.raises(ShellDenied, match="Forbidden token"):
+            sanitize_shell_to_plan(basic_policy, "cat <(echo hello)")

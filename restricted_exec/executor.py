@@ -9,8 +9,8 @@ from .audit import AuditEvent, AuditSink, now
 from .fs_sandbox import ensure_under_root, mkdir_p
 from .output_sanitize import sanitize_output
 from .policy import EnginePolicy, PolicyError, ArgSpec
-from .shell_sanitizer import Plan as ShellPlan, Step as ShellStep
-from .python_sanitizer import PythonPlan
+from .shell_sanitizer import Plan as ShellPlan, Step as ShellStep, PythonStep
+from .python_sanitizer import PythonPlan, PythonDenied, sanitize_python_to_plan
 from .safe_api import SafeAPI
 
 
@@ -102,6 +102,7 @@ def execute_plan(
     cwd: Optional[str] = None,
     http_allow_hosts: Optional[set[str]] = None,
     safe_api: Optional[SafeAPI] = None,
+    allowed_api: Optional[set[str]] = None,
 ) -> Dict[str, Any]:
     audit = audit or AuditSink()
     cwd = cwd or policy.workspace_root
@@ -115,7 +116,12 @@ def execute_plan(
         )
 
     if isinstance(plan, ShellPlan):
-        return _execute_shell_plan(policy, plan, actor, request_id, audit, cwd)
+        return _execute_shell_plan(
+            policy, plan, actor, request_id, audit, cwd,
+            http_allow_hosts=http_allow_hosts,
+            safe_api=safe_api,
+            allowed_api=allowed_api,
+        )
 
     raise TypeError("Unknown plan type")
 
@@ -127,6 +133,9 @@ def _execute_shell_plan(
     request_id: str,
     audit: AuditSink,
     cwd: str,
+    http_allow_hosts: Optional[set[str]] = None,
+    safe_api: Optional[SafeAPI] = None,
+    allowed_api: Optional[set[str]] = None,
 ) -> Dict[str, Any]:
     audit.emit(
         AuditEvent(
@@ -141,10 +150,27 @@ def _execute_shell_plan(
     prev_proc: Optional[subprocess.Popen] = None
     procs: list[subprocess.Popen] = []
     redirect_files: list = []
+    rcs: list[int] = []
     last_stdout = b""
     last_stderr = b""
+    timed_out = False
 
     for idx, step in enumerate(plan.steps):
+        # ---- Inline Python step ----
+        if isinstance(step, PythonStep):
+            # Drain any pending subprocess before switching to Python execution
+            if prev_proc is not None:
+                _drain_proc(prev_proc, procs, rcs)
+                prev_proc = None
+
+            last_stdout, last_stderr, rc = _execute_inline_python_step(
+                policy, step, idx, actor, request_id, audit, cwd,
+                http_allow_hosts, safe_api, allowed_api,
+            )
+            rcs.append(rc)
+            continue
+
+        # ---- Shell step ----
         argv, timeout_s = _build_argv(policy, step)
 
         # Redirection (stdout only)
@@ -191,27 +217,31 @@ def _execute_shell_plan(
 
         prev_proc = p
 
-    # Wait for last process
-    timed_out = False
-    try:
-        last_timeout = policy.commands[plan.steps[-1].command_id].timeout_s
-        out_b, err_b = procs[-1].communicate(timeout=last_timeout)
-        last_stdout, last_stderr = out_b or b"", err_b or b""
-    except subprocess.TimeoutExpired:
-        timed_out = True
+    # Wait for last process if it's a shell step
+    if prev_proc is not None:
+        try:
+            last_step = plan.steps[-1]
+            last_timeout = policy.commands[last_step.command_id].timeout_s if isinstance(last_step, ShellStep) else 15
+            out_b, err_b = procs[-1].communicate(timeout=last_timeout)
+            last_stdout, last_stderr = out_b or b"", err_b or b""
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            for p in procs:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+
+        # Wait on ALL processes to prevent zombies
         for p in procs:
             try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
                 p.kill()
-            except Exception:
-                pass
+                p.wait()
 
-    # Wait on ALL processes to prevent zombies
-    for p in procs:
-        try:
-            p.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            p.kill()
-            p.wait()
+        # Collect return codes from remaining shell procs
+        rcs.extend(p.returncode for p in procs)
 
     # Close redirect file handles
     for f in redirect_files:
@@ -220,7 +250,6 @@ def _execute_shell_plan(
         except Exception:
             pass
 
-    rcs = [p.returncode for p in procs]
     sanitized_out = sanitize_output(last_stdout)
     sanitized_err = sanitize_output(last_stderr)
 
@@ -254,6 +283,114 @@ def _execute_shell_plan(
         "stdout": sanitized_out,
         "stderr": sanitized_err,
     }
+
+
+def _drain_proc(
+    prev_proc: subprocess.Popen,
+    procs: list[subprocess.Popen],
+    rcs: list[int],
+) -> None:
+    """Wait for pending subprocess(es) and collect return codes before a Python step."""
+    try:
+        prev_proc.communicate(timeout=15)
+    except subprocess.TimeoutExpired:
+        for p in procs:
+            try:
+                p.kill()
+            except Exception:
+                pass
+    for p in procs:
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+    rcs.extend(p.returncode for p in procs)
+    procs.clear()
+
+
+def _execute_inline_python_step(
+    policy: EnginePolicy,
+    step: PythonStep,
+    idx: int,
+    actor: Dict[str, Any],
+    request_id: str,
+    audit: AuditSink,
+    cwd: str,
+    http_allow_hosts: Optional[set[str]],
+    safe_api: Optional[SafeAPI],
+    allowed_api: Optional[set[str]],
+) -> tuple[bytes, bytes, int]:
+    """AST-validate and execute an inline Python step. Returns (stdout, stderr, rc)."""
+    from io import StringIO
+
+    if allowed_api is None:
+        raise ValidationError(
+            "allowed_api is required when plan contains inline Python steps"
+        )
+
+    # Validate the Python code through the AST sanitizer
+    try:
+        py_plan = sanitize_python_to_plan(policy, step.python_src, allowed_api)
+    except PythonDenied as e:
+        raise ValidationError(
+            f"Inline Python failed AST validation: {e}"
+        ) from e
+
+    api = safe_api or SafeAPI(
+        workspace_root=policy.workspace_root,
+        http_allow_hosts=http_allow_hosts,
+    )
+    safe_globals = api.build_globals()
+
+    # Capture print() output via StringIO
+    captured_io = StringIO()
+    original_print = safe_globals["__builtins__"]["print"]
+    safe_globals["__builtins__"]["print"] = lambda *a, **kw: original_print(
+        *a, **{**kw, "file": captured_io}
+    )
+
+    audit.emit(AuditEvent(
+        ts=now(),
+        event="step_start",
+        request_id=request_id,
+        actor=actor,
+        details={
+            "index": idx,
+            "type": "inline_python",
+            "python_src": step.python_src,
+            "cwd": cwd,
+        },
+    ))
+
+    try:
+        exec(
+            compile(py_plan.python_src, "<restricted-inline-python>", "exec"),
+            safe_globals,
+            {},
+        )
+        py_ok = True
+        py_err = ""
+    except Exception as e:
+        py_ok = False
+        py_err = f"{type(e).__name__}: {e}"
+
+    captured_text = captured_io.getvalue()
+
+    # Handle redirect
+    if step.redirect.stdout_path:
+        out_path = ensure_under_root(
+            policy.workspace_root, step.redirect.stdout_path
+        )
+        mkdir_p(os.path.dirname(out_path))
+        mode = "a" if step.redirect.stdout_append else "w"
+        with open(out_path, mode) as f:
+            f.write(captured_text)
+
+    stdout_bytes = captured_text.encode("utf-8")
+    stderr_bytes = py_err.encode("utf-8") if py_err else b""
+    rc = 0 if py_ok else 1
+    return stdout_bytes, stderr_bytes, rc
 
 
 def _execute_python_plan(
