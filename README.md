@@ -1,24 +1,41 @@
 # restricted-exec
 
-A highly restrictive sanitizer/validator + compiler for:
-- **Shell-like input** (bash subset) — parsed, validated, compiled to a no-shell execution plan
-- **Python input** (AST-restricted subset) — only allowlisted safe API calls permitted
+## What this does
 
-Outputs a deterministic execution plan and can optionally execute it using `subprocess`
-with `shell=False` (no shell parsing).
+When you let untrusted code run on your infrastructure — whether it comes from an
+AI agent, a user-submitted script, or an automated pipeline — you need to control
+exactly what that code is allowed to do. `restricted-exec` is that control layer.
 
-## Threat model / non-goals
+It sits between the untrusted input and the operating system. You give it a shell
+command or a Python snippet, and instead of executing it directly (the way `os.system`
+or `subprocess.Popen(shell=True)` would), it does three things:
 
-This repo **does not** provide OS-level isolation. For production you must run the executor
-inside a sandbox (ECS Fargate / microVM / gVisor / etc.) and enforce network + FS policies
-at that layer.
+1. **Parses** the input into a structured syntax tree (using `bashlex` for shell,
+   Python's built-in `ast` module for Python).
+2. **Validates** every element of that tree against a strict deny-by-default policy.
+   Only commands, flags, and function calls that you have explicitly allowlisted are
+   permitted. Everything else — variable expansion, command substitution, imports,
+   attribute access, globbing — is rejected before anything runs.
+3. **Compiles** the validated input into a deterministic execution plan: a list of
+   concrete steps with resolved arguments, file paths confined to a workspace
+   directory, and structured audit metadata. The plan can be inspected, logged, or
+   approved before execution.
 
-This repo focuses on:
-- Deny-by-default parsing + validation
-- Compiling to allowlisted primitives
-- Auditable "what will it do" plan and structured events
-- Output sanitization (ANSI stripping, redaction, truncation)
-- **Secure extension** of allowed commands and functions
+If you choose to execute the plan, it runs each step using `subprocess.Popen` with
+`shell=False` (for shell plans) or a tightly restricted `exec()` with only your
+chosen safe APIs in scope (for Python plans). Output is sanitized: ANSI escape codes
+are stripped, secrets like API keys and JWTs are redacted, and long output is
+truncated.
+
+The allowed set of commands and functions is not fixed. You can extend it securely at
+configuration time by loading TOML policy files (with optional HMAC signature
+verification), or at runtime by registering new Python functions through a type-checked
+wrapper that prevents argument injection and sanitizes exceptions.
+
+This is **not** a sandbox. It does not provide OS-level isolation, network restrictions,
+or filesystem-level enforcement. It is the in-process validation layer that you pair
+with a real sandbox (Fargate, microVM, gVisor) in production. Its job is to make sure
+that only known-safe operations reach the sandbox in the first place.
 
 ## Quick start
 
@@ -28,43 +45,95 @@ uv run python examples/run_shell.py
 uv run python examples/run_python.py
 uv run python examples/extend_policy.py
 uv run python examples/extend_python_api.py
+uv run pytest tests/ -v                    # 216 tests
 ```
 
-## Supported shell subset (deny by default)
+## Examples: what's allowed and what's denied
 
-**Allowed:**
-- Simple commands (must be allowlisted in policy)
-- Pipelines (`|`)
-- Redirections `>` and `>>` to workspace-only paths
-- Chaining `&&` and `;` (compiled to step sequencing)
-- Quoted strings (no expansions)
+### Shell
 
-**Denied:**
-- Command substitution: `$()`, backticks
-- Variable expansion: `$FOO`
-- Globbing: `*`, `?`
-- Process substitution: `<(...)`
-- Backgrounding: `&`
-- Subshells: `(...)` or `{ ...; }`
-- All other shell constructs
+```bash
+# ALLOWED — simple allowlisted command with flags
+echo hello                          # ✓ if "echo" is in policy
 
-## Supported Python subset (deny by default)
+# ALLOWED — pipeline (stdout wiring, no shell)
+echo hello | wc -l                  # ✓ if both "echo" and "wc" are in policy
 
-**Allowed:**
-- Literals, dict/list construction
-- `if`/`for`/`while`
-- Dict/list indexing and slicing (`d["key"]`, `s[:100]`)
-- Calls **only** to provided safe APIs (e.g. `http_get`, `write_text`, `mkdir`)
-- Basic builtins: `len`, `range`, `min`, `max`, `sum`, `print`, `str`, `int`, `float`
+# ALLOWED — sequencing and redirect to workspace
+mkdir --path out && echo done > out/log.txt   # ✓
 
-**Denied:**
-- `import` / `from ... import`
-- Attribute access (`obj.attr` — blocks `__class__` escape chains)
-- `exec`/`eval`/`compile`/`open`/`__import__`
-- `getattr`/`setattr`/`delattr`/`globals`/`locals`/`vars`/`dir`
-- f-strings (can invoke `format` methods)
-- Class/function definitions, lambda, try/except
-- Starred expressions, yield, async constructs
+# DENIED — command substitution
+echo $(whoami)                      # ✗ rejected: "Forbidden token: $("
+
+# DENIED — variable expansion
+echo $HOME                          # ✗ rejected: "Expansions are not supported"
+
+# DENIED — globbing
+ls *.py                             # ✗ rejected: "Forbidden token: *"
+
+# DENIED — command not in policy
+rm -rf /                            # ✗ rejected: "Command not allowlisted: rm"
+
+# DENIED — process substitution
+diff <(echo a) <(echo b)            # ✗ rejected: "Forbidden token: <("
+
+# DENIED — backgrounding
+sleep 999 &                         # ✗ rejected
+
+# DENIED — subshells, loops, functions
+(echo hidden)                       # ✗ rejected: "Unsupported shell construct"
+for i in 1 2 3; do echo $i; done   # ✗ rejected
+```
+
+### Python
+
+```python
+# ALLOWED — safe API calls, variables, arithmetic, control flow
+mkdir("out")                                    # ✓
+write_text("out/data.txt", "hello")             # ✓
+content = read_text("out/data.txt")             # ✓
+r = http_get("https://example.com/")            # ✓
+page = r["body_text"][:2000]                    # ✓ (subscript and slice allowed)
+for i in range(3):                              # ✓
+    print(i)
+x = len("hello") + max(1, 2)                   # ✓
+
+# DENIED — imports
+import os                                       # ✗ "Forbidden syntax: Import"
+
+# DENIED — attribute access (blocks __class__ escape chains)
+x = ().__class__.__bases__[0].__subclasses__()  # ✗ "Attribute access is not allowed"
+"hello".upper()                                 # ✗ (method call = attribute access)
+
+# DENIED — dangerous builtins
+eval("1+1")                                     # ✗ "Forbidden call: eval"
+exec("import os")                               # ✗ "Forbidden call: exec"
+open("/etc/passwd")                             # ✗ "Forbidden call: open"
+getattr([], "__class__")                        # ✗ "Forbidden call: getattr"
+
+# DENIED — information gathering
+globals()                                       # ✗ "Forbidden call: globals"
+dir()                                           # ✗ "Forbidden call: dir"
+type(42)                                        # ✗ "Forbidden call: type"
+
+# DENIED — code generation
+f"{1+1}"                                        # ✗ "f-strings are not allowed"
+def foo(): pass                                 # ✗ "Forbidden syntax: FunctionDef"
+class Foo: pass                                 # ✗ "Forbidden syntax: ClassDef"
+lambda: 1                                       # ✗ "Forbidden syntax: Lambda"
+
+# DENIED — dunder access
+x = __builtins__                                # ✗ "Dunder name access not allowed"
+```
+
+### Path traversal (filesystem sandbox)
+
+```python
+write_text("out/data.txt", "ok")                # ✓ stays under workspace
+write_text("../../etc/passwd", "pwned")         # ✗ "Path escapes workspace root"
+read_text("/etc/shadow")                        # ✗ "Path escapes workspace root"
+mkdir("a/b/../../../escape")                    # ✗ "Path escapes workspace root"
+```
 
 ## Extending allowed commands
 
