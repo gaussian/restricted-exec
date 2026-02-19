@@ -18,7 +18,7 @@ class ValidationError(Exception):
     pass
 
 
-SAFE_STRING_DEFAULT_DENY = r";&|`$<>\n\r\0"
+SAFE_STRING_DEFAULT_DENY = ";&|`$<>\n\r\0"
 
 
 def _validate_arg(name: str, spec: ArgSpec, value: Any) -> Any:
