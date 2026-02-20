@@ -43,8 +43,8 @@ sandbox.
 | Metric | Value |
 |--------|-------|
 | Source code | ~1,607 LOC across 10 modules |
-| Test code | ~2,943 LOC across 10 test files (369 tests, including 118 adversarial) |
-| Test-to-code ratio | 1.8 : 1 |
+| Test code | ~3,870 LOC across 14 test files (430 tests: 118 adversarial + 61 hardening + 251 unit) |
+| Test-to-code ratio | 2.4 : 1 |
 | Runtime dependencies | 1 (`bashlex>=0.18`) |
 | Python requirement | >=3.11 |
 | License | MIT |
@@ -192,42 +192,42 @@ injection methods.
 
 ## 5. Attack Surface Matrix
 
-| ID | Attack Vector | Category | Mitigation | Status | Severity if Bypassed | Adversarial Tests (`test_adversarial.py`) |
-|----|---------------|----------|------------|--------|---------------------|------------------------------------------|
-| A-01 | Command substitution `$(...)` | Shell injection | FORBIDDEN_TOKENS + `_word_to_literal` + `shell=False` | **Mitigated** (3 layers) | Critical | `test_command_substitution_nested` |
-| A-02 | Backtick substitution `` `...` `` | Shell injection | FORBIDDEN_TOKENS + `_word_to_literal` + `shell=False` | **Mitigated** (3 layers) | Critical | `test_backtick_in_single_quotes` |
-| A-03 | Process substitution `<(...)` / `>(...)` | Shell injection | FORBIDDEN_TOKENS | **Mitigated** | High | `test_process_substitution_output` |
-| A-04 | Variable expansion `$VAR` / `${VAR}` | Shell injection | `_word_to_literal()` denies `$` + `shell=False` | **Mitigated** (2 layers) | High | `test_dollar_in_double_quotes`, `test_dollar_brace_expansion`, `test_dollar_in_inline_python_code` |
-| A-05 | Glob expansion `*` / `?` | Shell injection | `_word_to_literal()` denies globs + `shell=False` | **Mitigated** (2 layers) | Medium | — (covered in `test_shell_sanitizer.py`) |
-| A-06 | Subshells `(...)` / brace groups `{...}` | Shell injection | bashlex AST node rejection | **Mitigated** | High | — (covered in `test_shell_sanitizer.py`) |
-| A-07 | Loops / conditionals (`for`, `if`, `while`, `case`) | Shell injection | bashlex AST node rejection | **Mitigated** | Medium | `test_case_statement` |
-| A-08 | OR operator `\|\|` | Shell injection | Explicit operator deny in `_compile_node()` | **Mitigated** | Medium | `test_or_operator` |
-| A-09 | Backgrounding `&` | Shell injection | Word content check for `&` | **Mitigated** | Medium | `test_ampersand_in_word` |
-| A-10 | Unlisted command execution | Authorization | Policy command allowlist | **Mitigated** | High | `test_command_not_in_allowlist`, `test_multiple_commands_with_unknown` |
-| A-11 | bashlex parsing bug | Shell injection | Defense-in-depth layers 4-7 catch bypass | **Partially Mitigated** | Critical | `test_null_byte_in_shell_input`, `test_newline_injection`, `test_very_long_argument`, `test_unicode_in_shell_word`, `test_heredoc_attempt_denied` |
-| A-12 | Python `__class__` escape chain | Sandbox escape | All attribute access denied in AST | **Mitigated** | Critical | `test_tuple_class_bases_subclasses`, `test_list_class_mro`, `test_print_class_attribute` |
-| A-13 | Python `eval()` / `exec()` / `compile()` | Sandbox escape | DENY_CALL_NAMES + not in builtins | **Mitigated** (2 layers) | Critical | `test_inline_python_eval_denied`, `test_inline_python_exec_denied`, `test_call_variable_holding_function_name` |
-| A-14 | Python `__import__()` | Sandbox escape | Denied call + import syntax denied + not in globals | **Mitigated** (3 layers) | Critical | `test_chr_to_build_dunder_import`, `test_inline_python_import_denied`, `test_lambda_wrapping_import` |
-| A-15 | Python `getattr()` / `setattr()` / reflection | Sandbox escape | DENY_CALL_NAMES | **Mitigated** | Critical | `test_getattr_denied`, `test_hasattr_denied` |
-| A-16 | Python f-string `__format__` escape | Sandbox escape | f-strings denied in AST | **Mitigated** | High | `test_fstring_with_expression`, `test_fstring_with_dunder`, `test_inline_python_fstring_denied` |
-| A-17 | Python method calls (`.upper()`, etc.) | Sandbox escape | All attribute access denied | **Mitigated** | High | `test_string_upper_method_call`, `test_list_append_method_call`, `test_string_join_method_call`, `test_string_format_method_call`, `test_bytes_decode_method_call` |
-| A-18 | Python `bytes` / `bytearray` / `memoryview` | Sandbox escape | In DENY_CALL_NAMES | **Mitigated** | Medium | `test_bytes_denied`, `test_bytearray_denied`, `test_memoryview_denied` |
-| A-19 | Novel Python AST bypass | Sandbox escape | Restricted builtins as second layer | **Partially Mitigated** | Critical | `test_walrus_operator_allowed`, `test_subscript_call_denied`, `test_dict_constructor_with_dunder_key_allowed`, `test_percent_format_string_allowed` |
-| A-20 | Path traversal via `../` | Filesystem escape | `ensure_under_root()` with `realpath()` | **Mitigated** | High | `test_path_concatenation_escape`, `test_path_multiply_escape`, `test_path_loop_construction_escape`, `test_path_dict_fragments_escape`, `test_path_list_subscript_escape`, `test_null_byte_in_path`, `test_symlink_escape_blocked`, `test_absolute_path_prefix_trick`, `test_unicode_fullwidth_dots_stay_under_root`, + 8 more |
-| A-21 | Symlink race (TOCTOU) | Filesystem escape | Acknowledged; deferred to OS sandbox | **Unmitigated** (F-01) | High | `test_symlink_escape_blocked` (detection only; race not tested) |
-| A-22 | Environment variable leakage to child processes | Information disclosure | No `env=` passed to `Popen()` | **Unmitigated** (F-03) | Medium | — |
-| A-23 | Secret leakage in output | Information disclosure | Regex-based redaction (5 patterns) | **Partially Mitigated** (F-09) | Medium | — (covered in `test_output_sanitize.py`) |
-| A-24 | Policy file tampering | Configuration | Optional HMAC-SHA256 | **Mitigated** (when enabled) | High | — (covered in `test_policy_loader.py`) |
-| A-25 | Policy override via merge | Configuration | Default deny; `allow_override` flag | **Mitigated** | Medium | — (covered in `test_policy_loader.py`) |
-| A-26 | Extension function abuse | Privilege escalation | Type checking + exception sanitization | **Partially Mitigated** | Medium | `test_registered_extension_type_mismatch` |
-| A-27 | ReDoS via policy regex | Denial of service | 500-char regex length limit | **Partially Mitigated** (F-07) | Low | — |
+| ID | Attack Vector | Category | Mitigation | Status | Severity if Bypassed | Tests |
+|----|---------------|----------|------------|--------|---------------------|-------|
+| A-01 | Command substitution `$(...)` | Shell injection | FORBIDDEN_TOKENS + `_word_to_literal` + `shell=False` | **Mitigated** (3 layers) | Critical | `adv:test_command_substitution_nested` |
+| A-02 | Backtick substitution `` `...` `` | Shell injection | FORBIDDEN_TOKENS + `_word_to_literal` + `shell=False` | **Mitigated** (3 layers) | Critical | `adv:test_backtick_in_single_quotes` |
+| A-03 | Process substitution `<(...)` / `>(...)` | Shell injection | FORBIDDEN_TOKENS | **Mitigated** | High | `adv:test_process_substitution_output` |
+| A-04 | Variable expansion `$VAR` / `${VAR}` | Shell injection | `_word_to_literal()` denies `$` + `shell=False` | **Mitigated** (2 layers) | High | `adv:test_dollar_in_double_quotes`, `adv:test_dollar_brace_expansion` |
+| A-05 | Glob expansion `*` / `?` | Shell injection | `_word_to_literal()` denies globs + `shell=False` | **Mitigated** (2 layers) | Medium | `test_shell_sanitizer.py` |
+| A-06 | Subshells `(...)` / brace groups `{...}` | Shell injection | bashlex AST node rejection | **Mitigated** | High | `test_shell_sanitizer.py` |
+| A-07 | Loops / conditionals (`for`, `if`, `while`, `case`) | Shell injection | bashlex AST node rejection | **Mitigated** | Medium | `adv:test_case_statement` |
+| A-08 | OR operator `\|\|` | Shell injection | Explicit operator deny in `_compile_node()` | **Mitigated** | Medium | `adv:test_or_operator` |
+| A-09 | Backgrounding `&` | Shell injection | Word content check for `&` | **Mitigated** | Medium | `adv:test_ampersand_in_word` |
+| A-10 | Unlisted command execution | Authorization | Policy command allowlist | **Mitigated** | High | `adv:test_command_not_in_allowlist`, `adv:test_multiple_commands_with_unknown` |
+| A-11 | bashlex parsing bug | Shell injection | Defense-in-depth layers 4-7 catch bypass | **Partially Mitigated** | Critical | `adv:test_null_byte_in_shell_input`, `adv:test_newline_injection`, `adv:test_unicode_in_shell_word`; `uni:test_zero_width_joiner_in_shell_word`, `uni:test_homograph_latin_vs_cyrillic_a` |
+| A-12 | Python `__class__` escape chain | Sandbox escape | All attribute access denied in AST | **Mitigated** | Critical | `adv:test_tuple_class_bases_subclasses`, `adv:test_list_class_mro`, `adv:test_print_class_attribute` |
+| A-13 | Python `eval()` / `exec()` / `compile()` | Sandbox escape | DENY_CALL_NAMES + not in builtins | **Mitigated** (2 layers) | Critical | `adv:test_inline_python_eval_denied`, `adv:test_inline_python_exec_denied` |
+| A-14 | Python `__import__()` | Sandbox escape | Denied call + import syntax denied + not in globals | **Mitigated** (3 layers) | Critical | `adv:test_chr_to_build_dunder_import`, `adv:test_inline_python_import_denied`, `adv:test_lambda_wrapping_import` |
+| A-15 | Python `getattr()` / `setattr()` / reflection | Sandbox escape | DENY_CALL_NAMES | **Mitigated** | Critical | `adv:test_getattr_denied`, `adv:test_hasattr_denied` |
+| A-16 | Python f-string `__format__` escape | Sandbox escape | f-strings denied in AST | **Mitigated** | High | `adv:test_fstring_with_expression`, `adv:test_fstring_with_dunder` |
+| A-17 | Python method calls (`.upper()`, etc.) | Sandbox escape | All attribute access denied | **Mitigated** | High | `adv:test_string_upper_method_call`, `adv:test_string_join_method_call`, `adv:test_bytes_decode_method_call` |
+| A-18 | Python `bytes` / `bytearray` / `memoryview` | Sandbox escape | In DENY_CALL_NAMES | **Mitigated** | Medium | `adv:test_bytes_denied`, `adv:test_bytearray_denied`, `adv:test_memoryview_denied` |
+| A-19 | Novel Python AST bypass | Sandbox escape | Restricted builtins as second layer | **Partially Mitigated** | Critical | `adv:test_walrus_operator_allowed`, `adv:test_subscript_call_denied` |
+| A-20 | Path traversal via `../` | Filesystem escape | `ensure_under_root()` with `realpath()` | **Mitigated** | High | `adv:test_path_concatenation_escape` + 16 more; `uni:test_zero_width_space_in_path`, `uni:test_rtl_override_in_path`, `uni:test_combining_dot_above_not_period`, `uni:test_nfc_nfd_normalization_path`, `uni:test_fullwidth_period_not_traversal` |
+| A-21 | Symlink race (TOCTOU) | Filesystem escape | Acknowledged; deferred to OS sandbox | **Unmitigated** (F-01) | High | `adv:test_symlink_escape_blocked` (detection only; race not tested) |
+| A-22 | Environment variable leakage to child processes | Information disclosure | No `env=` passed to `Popen()` | **Unmitigated** (F-03) | Medium | `iso:test_child_inherits_home`, `iso:test_child_inherits_path`, `iso:test_child_sees_injected_secret` |
+| A-23 | Secret leakage in output | Information disclosure | Regex-based redaction (5 patterns) | **Partially Mitigated** (F-09) | Medium | `test_output_sanitize.py`; `val:test_binary_output_decoded_with_replacement`, `val:test_ansi_stripping` |
+| A-24 | Policy file tampering | Configuration | Optional HMAC-SHA256 | **Mitigated** (when enabled) | High | `test_policy_loader.py` |
+| A-25 | Policy override via merge | Configuration | Default deny; `allow_override` flag | **Mitigated** | Medium | `test_policy_loader.py` |
+| A-26 | Extension function abuse | Privilege escalation | Type checking + exception sanitization | **Partially Mitigated** | Medium | `adv:test_registered_extension_type_mismatch`; `res:test_extension_accepts_bool_as_int` |
+| A-27 | ReDoS via policy regex | Denial of service | 500-char regex length limit | **Partially Mitigated** (F-07) | Low | `res:test_catastrophic_backtracking_bounded`, `res:test_regex_500_char_limit_only_in_loader`, `res:test_nested_quantifier_moderate_input` |
 | A-28 | Python `exec()` infinite loop | Denial of service | No timeout enforcement | **Unmitigated** (F-05) | Medium | — (unmitigated; no test) |
-| A-29 | Python `exec()` memory exhaustion | Denial of service | No memory limits | **Unmitigated** (F-04) | Medium | `test_memory_exhaustion_caught` |
-| A-30 | HTTP SSRF via `http_get()` | Network | HTTPS-only + optional host allowlist | **Partially Mitigated** | Medium | `test_http_get_non_https` |
-| A-31 | HTTP header injection | Network | `urllib` validates headers internally | **Mitigated** | Low | — |
-| A-32 | `bool` as `int` in type checks | Type confusion | `isinstance(True, int)` returns `True` | **Acknowledged** (F-08) | Low | — |
-| A-33 | Redirect file creation outside workspace | Filesystem escape | `ensure_under_root()` on redirect path | **Mitigated** | High | `test_redirect_to_dotdot_path`, `test_redirect_to_absolute_path_outside`, `test_redirect_with_dotdot_in_middle`, `test_redirect_traversal_at_shell_level` |
-| A-34 | Audit log tampering | Integrity | No integrity protection on default sink | **Unmitigated** | Low | — |
+| A-29 | Python `exec()` memory exhaustion | Denial of service | No memory limits | **Unmitigated** (F-04) | Medium | `adv:test_memory_exhaustion_caught`; `res:test_large_range_sum_completes`, `res:test_string_multiplication_no_limit`, `res:test_list_construction_no_limit` |
+| A-30 | HTTP SSRF via `http_get()` | Network | HTTPS-only + optional host allowlist | **Partially Mitigated** | Medium | `adv:test_http_get_non_https`; `ssrf:test_metadata_ip_blocked_by_allowlist`, `ssrf:test_localhost_blocked_by_allowlist`, `ssrf:test_internal_ip_blocked_by_allowlist`, `ssrf:test_ipv6_loopback_blocked_by_allowlist`, `ssrf:test_uppercase_http_scheme_rejected`, `ssrf:test_no_allowlist_permits_any_https_host` |
+| A-31 | HTTP header injection | Network | `urllib` validates headers internally | **Mitigated** | Low | `ssrf:test_http_scheme_rejected` |
+| A-32 | `bool` as `int` in type checks | Type confusion | `isinstance(True, int)` returns `True` | **Acknowledged** (F-08) | Low | `res:test_true_accepted_as_int_arg`, `res:test_false_accepted_as_int_arg`, `res:test_false_passes_min_value_zero`, `res:test_extension_accepts_bool_as_int` |
+| A-33 | Redirect file creation outside workspace | Filesystem escape | `ensure_under_root()` on redirect path | **Mitigated** | High | `adv:test_redirect_to_dotdot_path`, `adv:test_redirect_to_absolute_path_outside`; `val:test_redirect_very_long_path`, `val:test_redirect_append_accumulates`, `val:test_redirect_to_subdirectory_created` |
+| A-34 | Audit log tampering | Integrity | No integrity protection on default sink | **Unmitigated** | Low | `val:test_large_details_dict_serializes`, `val:test_nested_details_serializes`, `val:test_special_chars_in_actor`; `iso:test_audit_events_ordered_in_pipeline` |
 | A-35 | Extension timeout bypass | Denial of service | `timeout_s` not enforced | **Unmitigated** (F-06) | Medium | — (unmitigated; no test) |
 
 ---
@@ -621,10 +621,15 @@ A registered extension function can block the executor indefinitely.
 | `test_adversarial.py` | ~118 | All modules (cross-cutting) | **Red-team**: path traversal, Python sandbox escape, shell injection, runtime bypass, cross-layer attacks |
 | `test_shell_sanitizer.py` | ~96 | `shell_sanitizer.py` | Thorough: allowed/denied constructs, Python interception, edge cases |
 | `test_python_sanitizer.py` | ~89 | `python_sanitizer.py` | Thorough: all deny nodes, deny calls, escape attempts |
+| `test_process_isolation.py` | ~15 | `executor.py` | Env var leakage (A-22), pipeline timeouts, process cleanup, audit event ordering |
 | `test_executor.py` | ~38 | `executor.py` | Good: shell/Python/inline execution, argument validation |
 | `test_policy_loader.py` | ~39 | `policy_loader.py` | Good: load/reject/merge/HMAC validation |
 | `test_safe_api.py` | ~33 | `safe_api.py` | Good: file ops, HTTP, registration, type checking |
+| `test_validation_edges.py` | ~20 | `executor.py`, `audit.py`, `output_sanitize.py` | Redirect edge cases (A-33), arg validation, audit serialization, output sanitization |
+| `test_resource_limits.py` | ~12 | `executor.py`, `safe_api.py` | Resource exhaustion (A-29), ReDoS (A-27), bool-as-int type confusion (A-32) |
 | `test_output_sanitize.py` | ~18 | `output_sanitize.py` | Good: ANSI, redaction, truncation |
+| `test_ssrf.py` | ~7 | `safe_api.py` | SSRF host allowlist (A-30), scheme enforcement, metadata/internal IP blocking |
+| `test_unicode.py` | ~7 | `shell_sanitizer.py`, `fs_sandbox.py` | Zero-width chars, RTL override, combining dots, NFC/NFD, homographs (A-11, A-20) |
 | `test_fs_sandbox.py` | ~13 | `fs_sandbox.py` | Good: traversal attacks, boundary checks |
 | `test_audit.py` | ~6 | `audit.py` | Adequate: serialization, emission |
 | `conftest.py` | 5 fixtures | Shared test infrastructure | N/A |
@@ -633,13 +638,14 @@ A registered extension function can block the executor indefinitely.
 
 | Metric | Value |
 |--------|-------|
-| Total tests | 369 |
-| Test files | 10 |
-| Test LOC | ~2,943 |
+| Total tests | 430 |
+| Test files | 14 (+ `conftest.py`) |
+| Test LOC | ~3,870 |
 | Source LOC | ~1,607 |
-| Test-to-code ratio | 1.8 : 1 |
-| Attack vectors tested | 28 categories (up from 15, via adversarial red-team suite) |
+| Test-to-code ratio | 2.4 : 1 |
+| Attack vectors tested | 33 of 35 categories (A-28 and A-35 remain untested) |
 | Adversarial / red-team tests | 118 (in `test_adversarial.py`) |
+| Gap / hardening tests | 61 (across 5 new files) |
 | Fuzzing coverage | None |
 | Property-based testing | None |
 
@@ -649,13 +655,13 @@ A registered extension function can block the executor indefinitely.
 |----------|---------------|----------|--------|
 | Concurrent execution | Race conditions in plan execution; shared state | High | Not tested |
 | Python `exec()` timeout | Infinite loops hang executor | High | Not tested |
-| Resource exhaustion | `list(range(10**9))` memory DoS | High | **Partially covered**: `test_memory_exhaustion_caught` |
+| Resource exhaustion | `list(range(10**9))` memory DoS | High | **Covered**: `adv:test_memory_exhaustion_caught`; `res:test_large_range_sum_completes`, `res:test_string_multiplication_no_limit`, `res:test_list_construction_no_limit`, `res:test_nested_list_comprehension_no_limit` |
 | Fuzzing / property-based testing | Discover unknown parser edge cases | High | Not tested |
-| Symlink / TOCTOU | Filesystem race conditions | High | **Partially covered**: `test_symlink_escape_blocked` (detection only, not race) |
-| Environment variable isolation | Env leakage to child processes | Medium | Not tested |
-| Pipeline timeout edge cases | Timeout in middle of multi-step pipeline | Medium | Not tested |
-| SSRF via `http_get()` | Internal network scanning when no host allowlist | Medium | **Partially covered**: `test_http_get_non_https` |
-| Unicode / encoding bypass | Policy bypass via homographs, RTL override, normalization | Medium | **Partially covered**: `test_unicode_in_shell_word`, `test_unicode_dot_dot_in_path`, `test_fullwidth_slash_in_path` |
+| Symlink / TOCTOU | Filesystem race conditions | High | **Partially covered**: `adv:test_symlink_escape_blocked` (detection only, not race) |
+| Environment variable isolation | Env leakage to child processes | Medium | **Covered**: `iso:test_child_inherits_home`, `iso:test_child_inherits_path`, `iso:test_child_sees_injected_secret` |
+| Pipeline timeout edge cases | Timeout in middle of multi-step pipeline | Medium | **Covered**: `iso:test_last_command_timeout`, `iso:test_pipeline_last_step_timeout`, `iso:test_pipeline_first_step_timeout`, `iso:test_timeout_returns_return_codes` |
+| SSRF via `http_get()` | Internal network scanning when no host allowlist | Medium | **Covered**: `ssrf:test_metadata_ip_blocked_by_allowlist`, `ssrf:test_localhost_blocked_by_allowlist`, `ssrf:test_internal_ip_blocked_by_allowlist`, `ssrf:test_ipv6_loopback_blocked_by_allowlist`, `ssrf:test_no_allowlist_permits_any_https_host` |
+| Unicode / encoding bypass | Policy bypass via homographs, RTL override, normalization | Medium | **Covered**: `uni:test_zero_width_joiner_in_shell_word`, `uni:test_rtl_override_in_path`, `uni:test_combining_dot_above_not_period`, `uni:test_nfc_nfd_normalization_path`, `uni:test_homograph_latin_vs_cyrillic_a` + 4 more |
 | Extension timeout enforcement | Extension blocking indefinitely | Medium | Not tested |
 | Large / complex policy files | Performance DoS at load time | Low | Not tested |
 
