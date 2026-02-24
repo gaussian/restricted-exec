@@ -28,7 +28,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --locked --extra dev
+        run: uv sync --frozen --extra dev
 
       - name: Ruff fix + format
         run: |
@@ -58,7 +58,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --locked --extra dev
+        run: uv sync --frozen --extra dev
 
       - name: Run tests
         run: uv run pytest tests/ -v
