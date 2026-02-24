@@ -14,12 +14,17 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   publish:
-    name: Bump version & release
+    name: Bump, release & publish
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/restricted-exec
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,3 +94,12 @@ jobs:
               --title "v${VERSION}" \
               --generate-notes
           fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Build package
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
