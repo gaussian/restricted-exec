@@ -18,6 +18,7 @@ permissions:
 jobs:
   publish:
     name: Bump version & release
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,7 +75,17 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
         run: |
-          gh release create "v${{ steps.bump.outputs.version }}" \
-            --title "v${{ steps.bump.outputs.version }}" \
-            --generate-notes
+          # Promote Release Drafter draft if one exists, otherwise generate notes
+          DRAFT=$(gh release list --json tagName,isDraft --jq '[.[] | select(.isDraft)] | first | .tagName // empty')
+          if [ -n "$DRAFT" ]; then
+            gh release edit "$DRAFT" \
+              --tag "v${VERSION}" \
+              --title "v${VERSION}" \
+              --draft=false
+          else
+            gh release create "v${VERSION}" \
+              --title "v${VERSION}" \
+              --generate-notes
+          fi
