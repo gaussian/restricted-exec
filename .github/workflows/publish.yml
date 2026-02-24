@@ -1,0 +1,91 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Bump version & release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version
+        id: bump
+        run: |
+          python3 -c "
+          import re, sys
+
+          bump = '${{ inputs.bump }}'
+          path = 'pyproject.toml'
+
+          with open(path) as f:
+              text = f.read()
+
+          match = re.search(r'version\s*=\s*\"(\d+)\.(\d+)\.(\d+)\"', text)
+          if not match:
+              print('::error::Could not find version in pyproject.toml')
+              sys.exit(1)
+
+          major, minor, patch = int(match[1]), int(match[2]), int(match[3])
+
+          if bump == 'major':
+              major, minor, patch = major + 1, 0, 0
+          elif bump == 'minor':
+              minor, patch = minor + 1, 0
+          else:
+              patch += 1
+
+          new_version = f'{major}.{minor}.{patch}'
+          new_text = text[:match.start()] + f'version = \"{new_version}\"' + text[match.end():]
+
+          with open(path, 'w') as f:
+              f.write(new_text)
+
+          print(f'Bumped to {new_version}')
+
+          with open('$GITHUB_OUTPUT', 'a') as f:
+              f.write(f'version={new_version}\n')
+          "
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "release: v${{ steps.bump.outputs.version }}"
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push origin main --tags
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          # Promote Release Drafter draft if one exists, otherwise generate notes
+          DRAFT=$(gh release list --json tagName,isDraft --jq '[.[] | select(.isDraft)] | first | .tagName // empty')
+          if [ -n "$DRAFT" ]; then
+            gh release edit "$DRAFT" \
+              --tag "v${VERSION}" \
+              --title "v${VERSION}" \
+              --draft=false
+          else
+            gh release create "v${VERSION}" \
+              --title "v${VERSION}" \
+              --generate-notes
+          fi
