@@ -1,6 +1,6 @@
 [project]
 name = "restricted-exec"
-version = "0.1.0"
+version = "0.1.1"
 description = "Restrictive shell/Python sanitizer + plan compiler + optional executor (no-shell)."
 requires-python = ">=3.11"
 dependencies = [
