@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from restricted_exec.shell_sanitizer import (
-    Plan,
     PythonStep,
     ShellDenied,
     Step,
@@ -36,9 +35,7 @@ class TestShellAllowed:
         assert len(plan.steps) == 2
 
     def test_mixed_sequencing(self, basic_policy):
-        plan = sanitize_shell_to_plan(
-            basic_policy, "mkdir --path d && echo hello ; echo world"
-        )
+        plan = sanitize_shell_to_plan(basic_policy, "mkdir --path d && echo hello ; echo world")
         assert len(plan.steps) == 3
 
     def test_pipeline(self, basic_policy):
@@ -229,24 +226,18 @@ class TestPythonCommandInterception:
         assert plan.steps[2].command_id == "echo"
 
     def test_python3_c_with_semicolon_sequence(self, basic_policy):
-        plan = sanitize_shell_to_plan(
-            basic_policy, "echo before ; python3 -c 'x = 1' ; echo after"
-        )
+        plan = sanitize_shell_to_plan(basic_policy, "echo before ; python3 -c 'x = 1' ; echo after")
         assert len(plan.steps) == 3
         assert isinstance(plan.steps[1], PythonStep)
 
     def test_python3_c_with_redirect(self, basic_policy):
-        plan = sanitize_shell_to_plan(
-            basic_policy, "python3 -c 'print(1)' > out.txt"
-        )
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'print(1)' > out.txt")
         assert isinstance(plan.steps[0], PythonStep)
         assert plan.steps[0].redirect.stdout_path == "out.txt"
         assert plan.steps[0].redirect.stdout_append is False
 
     def test_python3_c_with_append_redirect(self, basic_policy):
-        plan = sanitize_shell_to_plan(
-            basic_policy, "python3 -c 'print(1)' >> out.txt"
-        )
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'print(1)' >> out.txt")
         assert isinstance(plan.steps[0], PythonStep)
         assert plan.steps[0].redirect.stdout_append is True
 
@@ -292,15 +283,11 @@ class TestPythonCommandInterception:
 
     def test_python3_in_pipeline_denied(self, basic_policy):
         with pytest.raises(ShellDenied, match="Piping.*inline Python"):
-            sanitize_shell_to_plan(
-                basic_policy, "echo hello | python3 -c 'print(1)'"
-            )
+            sanitize_shell_to_plan(basic_policy, "echo hello | python3 -c 'print(1)'")
 
     def test_python3_pipe_to_shell_denied(self, basic_policy):
         with pytest.raises(ShellDenied, match="Piping.*inline Python"):
-            sanitize_shell_to_plan(
-                basic_policy, "python3 -c 'print(1)' | cat"
-            )
+            sanitize_shell_to_plan(basic_policy, "python3 -c 'print(1)' | cat")
 
     def test_python3_c_shell_expansion_in_code_denied(self, basic_policy):
         """Shell expansion markers in Python code must still be denied."""

@@ -23,7 +23,7 @@ from restricted_exec.shell_sanitizer import (
     ShellDenied,
     sanitize_shell_to_plan,
 )
-from restricted_exec.audit import AuditEvent, AuditSink
+from restricted_exec.audit import AuditSink
 
 
 def _make_policy(workspace):
@@ -47,7 +47,11 @@ def _make_policy(workspace):
                 description="Read file or stdin",
                 exec_path="/bin/cat",
                 base_argv=[],
-                args={"file": ArgSpec(kind="string", required=False, regex=r"^[A-Za-z0-9_\-\/\.]{1,200}$")},
+                args={
+                    "file": ArgSpec(
+                        kind="string", required=False, regex=r"^[A-Za-z0-9_\-\/\.]{1,200}$"
+                    )
+                },
                 arg_map={"file": ["{file}"]},
                 timeout_s=5,
             ),
@@ -81,7 +85,8 @@ def _run_shell(policy, steps, allowed_api=None):
         explain={"summary": "test"},
     )
     return execute_plan(
-        policy, plan,
+        policy,
+        plan,
         actor={"type": "test", "id": "iso-test", "tenant": "test"},
         request_id="iso-test-1",
         cwd=policy.workspace_root,
@@ -104,18 +109,24 @@ class TestEnvIsolation:
     def test_child_inherits_home(self, workspace):
         """Child process can see $HOME from parent."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(command_id="env", args={}, redirect=Redirect()),
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(command_id="env", args={}, redirect=Redirect()),
+            ],
+        )
         stdout = result["stdout"]["text"]
         assert "HOME=" in stdout
 
     def test_child_inherits_path(self, workspace):
         """Child process can see $PATH from parent."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(command_id="env", args={}, redirect=Redirect()),
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(command_id="env", args={}, redirect=Redirect()),
+            ],
+        )
         stdout = result["stdout"]["text"]
         assert "PATH=" in stdout
 
@@ -125,9 +136,12 @@ class TestEnvIsolation:
         os.environ["TEST_SECRET_12345"] = "super-secret-value"
         try:
             policy = _make_policy(workspace)
-            result = _run_shell(policy, [
-                ShellStep(command_id="env", args={}, redirect=Redirect()),
-            ])
+            result = _run_shell(
+                policy,
+                [
+                    ShellStep(command_id="env", args={}, redirect=Redirect()),
+                ],
+            )
             stdout = result["stdout"]["text"]
             assert "TEST_SECRET_12345=super-secret-value" in stdout
         finally:
@@ -148,18 +162,24 @@ class TestPipelineTimeout:
     def test_last_command_timeout(self, workspace):
         """sleep as the only command — should timeout."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(command_id="sleep", args={"value": "999"}, redirect=Redirect()),
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(command_id="sleep", args={"value": "999"}, redirect=Redirect()),
+            ],
+        )
         assert result["timed_out"] is True
 
     def test_pipeline_last_step_timeout(self, workspace):
         """echo | sleep — last step times out, all procs killed."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(command_id="echo", args={"value": "hi"}, redirect=Redirect()),
-            ShellStep(command_id="sleep", args={"value": "999"}, redirect=Redirect()),
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(command_id="echo", args={"value": "hi"}, redirect=Redirect()),
+                ShellStep(command_id="sleep", args={"value": "999"}, redirect=Redirect()),
+            ],
+        )
         assert result["timed_out"] is True
         assert len(result["return_codes"]) >= 1
 
@@ -167,19 +187,25 @@ class TestPipelineTimeout:
         """sleep | cat — first step blocks, but timeout fires on last step's communicate()."""
         policy = _make_policy(workspace)
         start = time.time()
-        result = _run_shell(policy, [
-            ShellStep(command_id="sleep", args={"value": "999"}, redirect=Redirect()),
-            ShellStep(command_id="cat", args={}, redirect=Redirect()),
-        ])
+        _run_shell(
+            policy,
+            [
+                ShellStep(command_id="sleep", args={"value": "999"}, redirect=Redirect()),
+                ShellStep(command_id="cat", args={}, redirect=Redirect()),
+            ],
+        )
         elapsed = time.time() - start
         assert elapsed < 15
 
     def test_timeout_returns_return_codes(self, workspace):
         """After timeout, all processes have return codes (no zombies)."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(command_id="sleep", args={"value": "999"}, redirect=Redirect()),
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(command_id="sleep", args={"value": "999"}, redirect=Redirect()),
+            ],
+        )
         assert result["timed_out"] is True
         assert len(result["return_codes"]) > 0
 
@@ -195,31 +221,40 @@ class TestProcessCleanup:
     def test_single_command_returns_one_rc(self, workspace):
         """Single command produces exactly one return code."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(command_id="echo", args={"value": "hi"}, redirect=Redirect()),
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(command_id="echo", args={"value": "hi"}, redirect=Redirect()),
+            ],
+        )
         assert len(result["return_codes"]) == 1
         assert result["return_codes"][0] == 0
 
     def test_pipeline_returns_all_rcs(self, workspace):
         """Pipeline of N commands produces N return codes."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(command_id="echo", args={"value": "hello"}, redirect=Redirect()),
-            ShellStep(command_id="cat", args={}, redirect=Redirect()),
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(command_id="echo", args={"value": "hello"}, redirect=Redirect()),
+                ShellStep(command_id="cat", args={}, redirect=Redirect()),
+            ],
+        )
         assert len(result["return_codes"]) == 2
 
     def test_failed_command_nonzero_rc(self, workspace):
         """Command that fails returns nonzero exit code."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(
-                command_id="cat",
-                args={"file": "nonexistent_file_12345.txt"},
-                redirect=Redirect(),
-            ),
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(
+                    command_id="cat",
+                    args={"file": "nonexistent_file_12345.txt"},
+                    redirect=Redirect(),
+                ),
+            ],
+        )
         assert result["return_codes"][-1] != 0
 
     def test_empty_plan_raises(self, workspace):
@@ -242,7 +277,8 @@ class TestProcessCleanup:
             explain={"summary": "test drain"},
         )
         result = execute_plan(
-            policy, plan,
+            policy,
+            plan,
             actor={"type": "test", "id": "t1", "tenant": "t"},
             request_id="drain-test",
             allowed_api=api_set,
@@ -271,7 +307,8 @@ class TestProcessCleanup:
             explain={"summary": "test"},
         )
         execute_plan(
-            policy, plan,
+            policy,
+            plan,
             actor={"type": "test", "id": "t1", "tenant": "t"},
             request_id="audit-order-test",
             audit=sink,

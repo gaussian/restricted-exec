@@ -23,9 +23,7 @@ class TestAuditEvent:
         assert parsed["ts"] == 1234567890.0
 
     def test_to_json_sorted_keys(self):
-        ev = AuditEvent(
-            ts=0, event="e", request_id="r", actor={}, details={}
-        )
+        ev = AuditEvent(ts=0, event="e", request_id="r", actor={}, details={})
         j = ev.to_json()
         parsed = json.loads(j)
         keys = list(parsed.keys())
@@ -47,9 +45,7 @@ class TestAuditEvent:
 class TestAuditSink:
     def test_emit_prints(self, capsys):
         sink = AuditSink()
-        ev = AuditEvent(
-            ts=0, event="test", request_id="r", actor={}, details={}
-        )
+        ev = AuditEvent(ts=0, event="test", request_id="r", actor={}, details={})
         sink.emit(ev)
         captured = capsys.readouterr()
         assert '"event": "test"' in captured.out

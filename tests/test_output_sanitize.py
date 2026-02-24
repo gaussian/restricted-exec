@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 
 from restricted_exec.output_sanitize import sanitize_output
 

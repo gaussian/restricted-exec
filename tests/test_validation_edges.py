@@ -20,7 +20,7 @@ from restricted_exec.shell_sanitizer import (
     Step as ShellStep,
     Redirect,
 )
-from restricted_exec.audit import AuditEvent, AuditSink, now
+from restricted_exec.audit import AuditEvent, now
 from restricted_exec.output_sanitize import sanitize_output
 
 
@@ -51,7 +51,8 @@ def _run_shell(policy, steps):
         explain={"summary": "test"},
     )
     return execute_plan(
-        policy, plan,
+        policy,
+        plan,
         actor={"type": "test", "id": "val-test", "tenant": "test"},
         request_id="val-test-1",
         cwd=policy.workspace_root,
@@ -70,25 +71,31 @@ class TestRedirectEdgeCases:
         """Redirect to extremely long path — should not crash."""
         policy = _make_policy(workspace)
         long_name = "a" * 250
-        result = _run_shell(policy, [
-            ShellStep(
-                command_id="echo",
-                args={"value": "test"},
-                redirect=Redirect(stdout_path=long_name),
-            )
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(
+                    command_id="echo",
+                    args={"value": "test"},
+                    redirect=Redirect(stdout_path=long_name),
+                )
+            ],
+        )
         assert result["return_codes"][-1] == 0
 
     def test_redirect_append_creates_file(self, workspace):
         """Redirect with append mode creates file if it doesn't exist."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(
-                command_id="echo",
-                args={"value": "first"},
-                redirect=Redirect(stdout_path="append_test.txt", stdout_append=True),
-            )
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(
+                    command_id="echo",
+                    args={"value": "first"},
+                    redirect=Redirect(stdout_path="append_test.txt", stdout_append=True),
+                )
+            ],
+        )
         assert result["return_codes"][-1] == 0
         outpath = os.path.join(workspace, "append_test.txt")
         assert os.path.exists(outpath)
@@ -99,13 +106,16 @@ class TestRedirectEdgeCases:
         """Multiple appends to same file accumulate content."""
         policy = _make_policy(workspace)
         for val in ["line1", "line2", "line3"]:
-            _run_shell(policy, [
-                ShellStep(
-                    command_id="echo",
-                    args={"value": val},
-                    redirect=Redirect(stdout_path="multi.txt", stdout_append=True),
-                )
-            ])
+            _run_shell(
+                policy,
+                [
+                    ShellStep(
+                        command_id="echo",
+                        args={"value": val},
+                        redirect=Redirect(stdout_path="multi.txt", stdout_append=True),
+                    )
+                ],
+            )
 
         content = open(os.path.join(workspace, "multi.txt")).read()
         assert "line1" in content
@@ -115,12 +125,26 @@ class TestRedirectEdgeCases:
     def test_redirect_overwrite_replaces(self, workspace):
         """Non-append redirect overwrites previous content."""
         policy = _make_policy(workspace)
-        _run_shell(policy, [
-            ShellStep(command_id="echo", args={"value": "old"}, redirect=Redirect(stdout_path="over.txt")),
-        ])
-        _run_shell(policy, [
-            ShellStep(command_id="echo", args={"value": "new"}, redirect=Redirect(stdout_path="over.txt")),
-        ])
+        _run_shell(
+            policy,
+            [
+                ShellStep(
+                    command_id="echo",
+                    args={"value": "old"},
+                    redirect=Redirect(stdout_path="over.txt"),
+                ),
+            ],
+        )
+        _run_shell(
+            policy,
+            [
+                ShellStep(
+                    command_id="echo",
+                    args={"value": "new"},
+                    redirect=Redirect(stdout_path="over.txt"),
+                ),
+            ],
+        )
 
         content = open(os.path.join(workspace, "over.txt")).read()
         assert "new" in content
@@ -129,13 +153,16 @@ class TestRedirectEdgeCases:
     def test_redirect_to_subdirectory_created(self, workspace):
         """Redirect to nested path creates intermediate directories."""
         policy = _make_policy(workspace)
-        result = _run_shell(policy, [
-            ShellStep(
-                command_id="echo",
-                args={"value": "deep"},
-                redirect=Redirect(stdout_path="a/b/c/out.txt"),
-            )
-        ])
+        result = _run_shell(
+            policy,
+            [
+                ShellStep(
+                    command_id="echo",
+                    args={"value": "deep"},
+                    redirect=Redirect(stdout_path="a/b/c/out.txt"),
+                )
+            ],
+        )
         assert result["return_codes"][-1] == 0
         assert os.path.exists(os.path.join(workspace, "a/b/c/out.txt"))
 
@@ -190,13 +217,17 @@ class TestArgValidation:
     def test_nonabsolute_exec_path_rejected(self, workspace):
         """exec_path that isn't absolute is rejected at build time."""
         policy = EnginePolicy(
-            policy_id="test", version="0.1",
+            policy_id="test",
+            version="0.1",
             workspace_root=workspace,
             commands={
                 "bad": CommandSpec(
-                    command_id="bad", description="bad",
+                    command_id="bad",
+                    description="bad",
                     exec_path="relative/path",
-                    base_argv=[], args={}, arg_map={},
+                    base_argv=[],
+                    args={},
+                    arg_map={},
                 )
             },
         )
@@ -228,8 +259,11 @@ class TestAuditEdgeCases:
         """Audit event with large details dict serializes to JSON."""
         big = {f"key_{i}": f"value_{i}" for i in range(1000)}
         ev = AuditEvent(
-            ts=now(), event="test", request_id="r-1",
-            actor={"type": "test"}, details=big,
+            ts=now(),
+            event="test",
+            request_id="r-1",
+            actor={"type": "test"},
+            details=big,
         )
         parsed = json.loads(ev.to_json())
         assert len(parsed["details"]) == 1000
@@ -238,8 +272,11 @@ class TestAuditEdgeCases:
         """Deeply nested details dict serializes."""
         nested = {"a": {"b": {"c": {"d": {"e": "deep"}}}}}
         ev = AuditEvent(
-            ts=now(), event="test", request_id="r-1",
-            actor={"type": "test"}, details=nested,
+            ts=now(),
+            event="test",
+            request_id="r-1",
+            actor={"type": "test"},
+            details=nested,
         )
         parsed = json.loads(ev.to_json())
         assert parsed["details"]["a"]["b"]["c"]["d"]["e"] == "deep"
@@ -247,7 +284,9 @@ class TestAuditEdgeCases:
     def test_special_chars_in_actor(self):
         """Actor dict with special characters serializes cleanly."""
         ev = AuditEvent(
-            ts=now(), event="test", request_id="r-1",
+            ts=now(),
+            event="test",
+            request_id="r-1",
             actor={"type": "test", "name": 'O\'Brien "the great"', "emoji": "\U0001f600"},
             details={},
         )

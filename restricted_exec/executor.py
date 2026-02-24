@@ -117,7 +117,12 @@ def execute_plan(
 
     if isinstance(plan, ShellPlan):
         return _execute_shell_plan(
-            policy, plan, actor, request_id, audit, cwd,
+            policy,
+            plan,
+            actor,
+            request_id,
+            audit,
+            cwd,
             http_allow_hosts=http_allow_hosts,
             safe_api=safe_api,
             allowed_api=allowed_api,
@@ -164,8 +169,16 @@ def _execute_shell_plan(
                 prev_proc = None
 
             last_stdout, last_stderr, rc = _execute_inline_python_step(
-                policy, step, idx, actor, request_id, audit, cwd,
-                http_allow_hosts, safe_api, allowed_api,
+                policy,
+                step,
+                idx,
+                actor,
+                request_id,
+                audit,
+                cwd,
+                http_allow_hosts,
+                safe_api,
+                allowed_api,
             )
             rcs.append(rc)
             continue
@@ -221,7 +234,11 @@ def _execute_shell_plan(
     if prev_proc is not None:
         try:
             last_step = plan.steps[-1]
-            last_timeout = policy.commands[last_step.command_id].timeout_s if isinstance(last_step, ShellStep) else 15
+            last_timeout = (
+                policy.commands[last_step.command_id].timeout_s
+                if isinstance(last_step, ShellStep)
+                else 15
+            )
             out_b, err_b = procs[-1].communicate(timeout=last_timeout)
             last_stdout, last_stderr = out_b or b"", err_b or b""
         except subprocess.TimeoutExpired:
@@ -325,17 +342,13 @@ def _execute_inline_python_step(
     from io import StringIO
 
     if allowed_api is None:
-        raise ValidationError(
-            "allowed_api is required when plan contains inline Python steps"
-        )
+        raise ValidationError("allowed_api is required when plan contains inline Python steps")
 
     # Validate the Python code through the AST sanitizer
     try:
         py_plan = sanitize_python_to_plan(policy, step.python_src, allowed_api)
     except PythonDenied as e:
-        raise ValidationError(
-            f"Inline Python failed AST validation: {e}"
-        ) from e
+        raise ValidationError(f"Inline Python failed AST validation: {e}") from e
 
     api = safe_api or SafeAPI(
         workspace_root=policy.workspace_root,
@@ -350,18 +363,20 @@ def _execute_inline_python_step(
         *a, **{**kw, "file": captured_io}
     )
 
-    audit.emit(AuditEvent(
-        ts=now(),
-        event="step_start",
-        request_id=request_id,
-        actor=actor,
-        details={
-            "index": idx,
-            "type": "inline_python",
-            "python_src": step.python_src,
-            "cwd": cwd,
-        },
-    ))
+    audit.emit(
+        AuditEvent(
+            ts=now(),
+            event="step_start",
+            request_id=request_id,
+            actor=actor,
+            details={
+                "index": idx,
+                "type": "inline_python",
+                "python_src": step.python_src,
+                "cwd": cwd,
+            },
+        )
+    )
 
     try:
         exec(
@@ -379,9 +394,7 @@ def _execute_inline_python_step(
 
     # Handle redirect
     if step.redirect.stdout_path:
-        out_path = ensure_under_root(
-            policy.workspace_root, step.redirect.stdout_path
-        )
+        out_path = ensure_under_root(policy.workspace_root, step.redirect.stdout_path)
         mkdir_p(os.path.dirname(out_path))
         mode = "a" if step.redirect.stdout_append else "w"
         with open(out_path, mode) as f:

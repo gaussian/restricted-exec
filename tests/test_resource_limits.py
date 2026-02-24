@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
 
 from restricted_exec.policy import ArgSpec, EnginePolicy
 from restricted_exec.executor import ValidationError, _validate_arg, execute_plan
@@ -24,7 +23,8 @@ def _run_python(policy, src, allowed_api=None, safe_api=None):
     api_set = allowed_api or {"mkdir", "write_text", "write_json", "read_text", "http_get"}
     plan = sanitize_python_to_plan(policy, src, api_set)
     return execute_plan(
-        policy, plan,
+        policy,
+        plan,
         actor=actor,
         request_id="res-test-1",
         safe_api=safe_api,
@@ -47,8 +47,10 @@ class TestResourceExhaustion:
     def test_large_range_sum_completes(self, workspace):
         """sum(range(N)) for moderately large N — no timeout kills it."""
         policy = EnginePolicy(
-            policy_id="test-res", version="0.1",
-            workspace_root=workspace, commands={},
+            policy_id="test-res",
+            version="0.1",
+            workspace_root=workspace,
+            commands={},
         )
         result = _run_python(policy, "x = sum(range(10**6))\nprint(x)")
         assert result["ok"] is True
@@ -56,8 +58,10 @@ class TestResourceExhaustion:
     def test_string_multiplication_no_limit(self, workspace):
         """'a' * N for moderately large N — no memory limit."""
         policy = EnginePolicy(
-            policy_id="test-res", version="0.1",
-            workspace_root=workspace, commands={},
+            policy_id="test-res",
+            version="0.1",
+            workspace_root=workspace,
+            commands={},
         )
         result = _run_python(policy, 'x = "a" * (10**7)\nprint(len(x))')
         assert result["ok"] is True
@@ -65,8 +69,10 @@ class TestResourceExhaustion:
     def test_list_construction_no_limit(self, workspace):
         """list(range(N)) for moderately large N — no memory limit."""
         policy = EnginePolicy(
-            policy_id="test-res", version="0.1",
-            workspace_root=workspace, commands={},
+            policy_id="test-res",
+            version="0.1",
+            workspace_root=workspace,
+            commands={},
         )
         result = _run_python(policy, "x = list(range(10**6))\nprint(len(x))")
         assert result["ok"] is True
@@ -74,8 +80,10 @@ class TestResourceExhaustion:
     def test_nested_list_comprehension_no_limit(self, workspace):
         """Nested comprehension — CPU-intensive, no timeout."""
         policy = EnginePolicy(
-            policy_id="test-res", version="0.1",
-            workspace_root=workspace, commands={},
+            policy_id="test-res",
+            version="0.1",
+            workspace_root=workspace,
+            commands={},
         )
         result = _run_python(
             policy,

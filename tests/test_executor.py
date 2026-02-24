@@ -9,7 +9,7 @@ from restricted_exec.executor import ValidationError, execute_plan
 from restricted_exec.policy import ArgSpec, CommandSpec, EnginePolicy
 from restricted_exec.python_sanitizer import sanitize_python_to_plan
 from restricted_exec.safe_api import SafeAPI
-from restricted_exec.shell_sanitizer import PythonStep, sanitize_shell_to_plan
+from restricted_exec.shell_sanitizer import sanitize_shell_to_plan
 
 
 class CollectingSink(AuditSink):
@@ -56,9 +56,7 @@ class TestShellExecution:
         assert "hello" in result["stdout"]["text"]
 
     def test_sequence(self, basic_policy, default_actor, audit_sink):
-        plan = sanitize_shell_to_plan(
-            basic_policy, "mkdir --path testdir && echo done"
-        )
+        plan = sanitize_shell_to_plan(basic_policy, "mkdir --path testdir && echo done")
         result = execute_plan(
             basic_policy,
             plan,
@@ -68,9 +66,7 @@ class TestShellExecution:
             cwd=basic_policy.workspace_root,
         )
         assert all(rc == 0 for rc in result["return_codes"])
-        assert os.path.isdir(
-            os.path.join(basic_policy.workspace_root, "testdir")
-        )
+        assert os.path.isdir(os.path.join(basic_policy.workspace_root, "testdir"))
 
     def test_redirect_to_file(self, basic_policy, default_actor, audit_sink):
         plan = sanitize_shell_to_plan(basic_policy, "echo hello > output.txt")
@@ -166,9 +162,7 @@ class TestShellExecutionValidation:
         )
         plan = sanitize_shell_to_plan(policy, "echo hello")
         with pytest.raises(ValidationError, match="exec_path must be absolute"):
-            execute_plan(
-                policy, plan, actor=default_actor, request_id="test-bad"
-            )
+            execute_plan(policy, plan, actor=default_actor, request_id="test-bad")
 
     def test_validates_string_arg_max_len(self, workspace, default_actor):
         policy = EnginePolicy(
@@ -189,9 +183,7 @@ class TestShellExecutionValidation:
         )
         plan = sanitize_shell_to_plan(policy, "echo toolong")
         with pytest.raises(ValidationError, match="too long"):
-            execute_plan(
-                policy, plan, actor=default_actor, request_id="test-len"
-            )
+            execute_plan(policy, plan, actor=default_actor, request_id="test-len")
 
     def test_validates_string_arg_regex(self, workspace, default_actor):
         policy = EnginePolicy(
@@ -204,11 +196,7 @@ class TestShellExecutionValidation:
                     description="regex",
                     exec_path="/bin/echo",
                     base_argv=[],
-                    args={
-                        "value": ArgSpec(
-                            kind="string", max_len=200, regex=r"^[a-z]+$"
-                        )
-                    },
+                    args={"value": ArgSpec(kind="string", max_len=200, regex=r"^[a-z]+$")},
                     arg_map={"value": ["{value}"]},
                     timeout_s=2,
                 ),
@@ -216,9 +204,7 @@ class TestShellExecutionValidation:
         )
         plan = sanitize_shell_to_plan(policy, "echo UPPER")
         with pytest.raises(ValidationError, match="does not match regex"):
-            execute_plan(
-                policy, plan, actor=default_actor, request_id="test-regex"
-            )
+            execute_plan(policy, plan, actor=default_actor, request_id="test-regex")
 
     def test_validates_enum_arg(self, workspace, default_actor):
         policy = EnginePolicy(
@@ -231,11 +217,7 @@ class TestShellExecutionValidation:
                     description="enum",
                     exec_path="/bin/echo",
                     base_argv=[],
-                    args={
-                        "value": ArgSpec(
-                            kind="enum", values=["yes", "no"]
-                        )
-                    },
+                    args={"value": ArgSpec(kind="enum", values=["yes", "no"])},
                     arg_map={"value": ["{value}"]},
                     timeout_s=2,
                 ),
@@ -243,9 +225,7 @@ class TestShellExecutionValidation:
         )
         plan = sanitize_shell_to_plan(policy, "echo maybe")
         with pytest.raises(ValidationError, match="not allowed"):
-            execute_plan(
-                policy, plan, actor=default_actor, request_id="test-enum"
-            )
+            execute_plan(policy, plan, actor=default_actor, request_id="test-enum")
 
     def test_validates_deny_chars(self, workspace, default_actor):
         policy = EnginePolicy(
@@ -267,9 +247,7 @@ class TestShellExecutionValidation:
         # Default deny chars include semicolons and pipes
         plan = sanitize_shell_to_plan(policy, "echo 'hello;world'")
         with pytest.raises(ValidationError, match="forbidden char"):
-            execute_plan(
-                policy, plan, actor=default_actor, request_id="test-deny"
-            )
+            execute_plan(policy, plan, actor=default_actor, request_id="test-deny")
 
 
 class TestPythonExecution:
@@ -287,11 +265,11 @@ class TestPythonExecution:
         assert result["error"] == ""
 
     def test_write_and_read(self, empty_policy, default_actor, allowed_api, audit_sink):
-        src = '''
+        src = """
 mkdir("test_out")
 write_text("test_out/hello.txt", "world")
 content = read_text("test_out/hello.txt")
-'''
+"""
         plan = sanitize_python_to_plan(empty_policy, src, allowed_api)
         result = execute_plan(
             empty_policy,
@@ -308,11 +286,11 @@ content = read_text("test_out/hello.txt")
         assert os.path.isfile(path)
 
     def test_dict_subscript_at_runtime(self, empty_policy, default_actor, allowed_api, audit_sink):
-        src = '''
+        src = """
 d = {"a": 1, "b": 2}
 x = d["a"]
 write_text("result.txt", str(x))
-'''
+"""
         plan = sanitize_python_to_plan(empty_policy, src, allowed_api)
         result = execute_plan(
             empty_policy,
@@ -324,11 +302,11 @@ write_text("result.txt", str(x))
         assert result["ok"] is True
 
     def test_list_slice_at_runtime(self, empty_policy, default_actor, allowed_api, audit_sink):
-        src = '''
+        src = """
 items = [1, 2, 3, 4, 5]
 subset = items[:3]
 write_text("result.txt", str(len(subset)))
-'''
+"""
         plan = sanitize_python_to_plan(empty_policy, src, allowed_api)
         result = execute_plan(
             empty_policy,
@@ -340,9 +318,9 @@ write_text("result.txt", str(len(subset)))
         assert result["ok"] is True
 
     def test_runtime_error_captured(self, empty_policy, default_actor, allowed_api, audit_sink):
-        src = '''
+        src = """
 x = 1 / 0
-'''
+"""
         plan = sanitize_python_to_plan(empty_policy, src, allowed_api)
         result = execute_plan(
             empty_policy,
@@ -390,9 +368,7 @@ write_text("sum.txt", str(result))
             safe_api=api,
         )
         assert result["ok"] is True
-        path = os.path.join(
-            os.path.realpath(empty_policy.workspace_root), "sum.txt"
-        )
+        path = os.path.join(os.path.realpath(empty_policy.workspace_root), "sum.txt")
         with open(path) as f:
             assert f.read() == "7"
 
@@ -447,9 +423,7 @@ class TestInlinePythonExecution:
     def test_python3_c_malicious_eval_denied(
         self, basic_policy, default_actor, allowed_api, audit_sink
     ):
-        plan = sanitize_shell_to_plan(
-            basic_policy, "python3 -c 'eval(\"1+1\")'"
-        )
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'eval(\"1+1\")'")
         with pytest.raises(ValidationError, match="AST validation"):
             execute_plan(
                 basic_policy,
@@ -460,12 +434,8 @@ class TestInlinePythonExecution:
                 allowed_api=allowed_api,
             )
 
-    def test_python3_c_redirect_to_file(
-        self, basic_policy, default_actor, allowed_api, audit_sink
-    ):
-        plan = sanitize_shell_to_plan(
-            basic_policy, "python3 -c 'print(42)' > result.txt"
-        )
+    def test_python3_c_redirect_to_file(self, basic_policy, default_actor, allowed_api, audit_sink):
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'print(42)' > result.txt")
         result = execute_plan(
             basic_policy,
             plan,
@@ -481,9 +451,7 @@ class TestInlinePythonExecution:
         with open(path) as f:
             assert "42" in f.read()
 
-    def test_python3_c_requires_allowed_api(
-        self, basic_policy, default_actor, audit_sink
-    ):
+    def test_python3_c_requires_allowed_api(self, basic_policy, default_actor, audit_sink):
         plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'x = 1'")
         with pytest.raises(ValidationError, match="allowed_api is required"):
             execute_plan(
@@ -508,9 +476,7 @@ class TestInlinePythonExecution:
         )
         assert result["return_codes"] == [1]
 
-    def test_python3_c_audit_events(
-        self, basic_policy, default_actor, allowed_api, audit_sink
-    ):
+    def test_python3_c_audit_events(self, basic_policy, default_actor, allowed_api, audit_sink):
         plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'x = 1'")
         execute_plan(
             basic_policy,
@@ -531,10 +497,7 @@ class TestInlinePythonExecution:
     def test_python3_c_with_safe_api_functions(
         self, basic_policy, default_actor, allowed_api, audit_sink
     ):
-        plan = sanitize_shell_to_plan(
-            basic_policy,
-            "python3 -c 'mkdir(\"test_inline\")'"
-        )
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'mkdir(\"test_inline\")'")
         result = execute_plan(
             basic_policy,
             plan,
@@ -545,7 +508,5 @@ class TestInlinePythonExecution:
         )
         assert result["return_codes"] == [0]
         assert os.path.isdir(
-            os.path.join(
-                os.path.realpath(basic_policy.workspace_root), "test_inline"
-            )
+            os.path.join(os.path.realpath(basic_policy.workspace_root), "test_inline")
         )

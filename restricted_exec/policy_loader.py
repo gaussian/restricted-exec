@@ -18,7 +18,6 @@ import os
 import re
 import string
 import tomllib
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
 from .policy import ArgSpec, CommandSpec, EnginePolicy, PolicyError
@@ -71,8 +70,7 @@ def _validate_exec_path(
             break
     if not in_allowed:
         raise PolicyLoadError(
-            f"exec_path not in allowed directories: {real_path} "
-            f"(allowed: {allowed_dirs})"
+            f"exec_path not in allowed directories: {real_path} (allowed: {allowed_dirs})"
         )
 
 
@@ -160,9 +158,7 @@ def _parse_command_spec(
 
     timeout_s = raw.get("timeout_s", 15)
     if not isinstance(timeout_s, int) or timeout_s < 1 or timeout_s > MAX_TIMEOUT_S:
-        raise PolicyLoadError(
-            f"timeout_s must be 1-{MAX_TIMEOUT_S} for {cmd_id}: {timeout_s}"
-        )
+        raise PolicyLoadError(f"timeout_s must be 1-{MAX_TIMEOUT_S} for {cmd_id}: {timeout_s}")
 
     # Parse args
     args_raw = raw.get("args", {})
@@ -181,13 +177,9 @@ def _parse_command_spec(
     arg_map: Dict[str, List[str]] = {}
     for map_name, frags in arg_map_raw.items():
         if map_name not in args:
-            raise PolicyLoadError(
-                f"arg_map references unknown arg '{map_name}' for {cmd_id}"
-            )
+            raise PolicyLoadError(f"arg_map references unknown arg '{map_name}' for {cmd_id}")
         if not isinstance(frags, list) or not all(isinstance(f, str) for f in frags):
-            raise PolicyLoadError(
-                f"arg_map[{map_name}] must be a list of strings for {cmd_id}"
-            )
+            raise PolicyLoadError(f"arg_map[{map_name}] must be a list of strings for {cmd_id}")
         for frag in frags:
             _validate_format_string(map_name, frag)
         arg_map[map_name] = frags
@@ -303,9 +295,7 @@ def merge_policies(
 
     for cmd_id, cmd_spec in extension.commands.items():
         if cmd_id in merged_commands and not allow_override:
-            raise PolicyLoadError(
-                f"Extension cannot override existing command: {cmd_id}"
-            )
+            raise PolicyLoadError(f"Extension cannot override existing command: {cmd_id}")
         merged_commands[cmd_id] = cmd_spec
 
     return EnginePolicy(

@@ -76,7 +76,9 @@ if __name__ == "__main__":
     try:
         # 2. Load the extension policy (with full validation)
         extension = load_policy_file(policy_path)
-        print(f"Loaded extension: {extension.policy_id} with commands: {list(extension.commands.keys())}")
+        print(
+            f"Loaded extension: {extension.policy_id} with commands: {list(extension.commands.keys())}"
+        )
 
         # 3. Merge with base
         base = base_policy()

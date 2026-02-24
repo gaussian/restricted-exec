@@ -12,7 +12,6 @@ Tests are organized by attack surface:
 from __future__ import annotations
 
 import os
-import sys
 
 import pytest
 
@@ -20,13 +19,14 @@ from restricted_exec.audit import AuditEvent, AuditSink
 from restricted_exec.executor import ValidationError, execute_plan
 from restricted_exec.fs_sandbox import FsViolation, ensure_under_root
 from restricted_exec.python_sanitizer import PythonDenied, sanitize_python_to_plan
-from restricted_exec.safe_api import ApiViolation, SafeAPI
+from restricted_exec.safe_api import SafeAPI
 from restricted_exec.shell_sanitizer import ShellDenied, sanitize_shell_to_plan
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 class CollectingSink(AuditSink):
     def __init__(self):
@@ -39,6 +39,7 @@ class CollectingSink(AuditSink):
 # ===================================================================
 # A. Path traversal — fs_sandbox + SafeAPI
 # ===================================================================
+
 
 class TestAdversarialPathTraversal:
     """Try every creative path trick to escape the workspace root."""
@@ -140,6 +141,7 @@ class TestAdversarialPathTraversal:
 # B. Python sandbox escapes — python_sanitizer
 # ===================================================================
 
+
 class TestAdversarialPythonSandbox:
     """Try every known Python sandbox escape technique."""
 
@@ -216,9 +218,7 @@ class TestAdversarialPythonSandbox:
 
     def test_tuple_class_bases_subclasses(self, empty_policy, api):
         with pytest.raises(PythonDenied):
-            sanitize_python_to_plan(
-                empty_policy, "().__class__.__bases__[0].__subclasses__()", api
-            )
+            sanitize_python_to_plan(empty_policy, "().__class__.__bases__[0].__subclasses__()", api)
 
     def test_string_upper_method_call(self, empty_policy, api):
         with pytest.raises(PythonDenied):
@@ -230,15 +230,11 @@ class TestAdversarialPythonSandbox:
 
     def test_string_join_method_call(self, empty_policy, api):
         with pytest.raises(PythonDenied, match="method calls"):
-            sanitize_python_to_plan(
-                empty_policy, 'x = " ".join(["a", "b"])', api
-            )
+            sanitize_python_to_plan(empty_policy, 'x = " ".join(["a", "b"])', api)
 
     def test_string_format_method_call(self, empty_policy, api):
         with pytest.raises(PythonDenied):
-            sanitize_python_to_plan(
-                empty_policy, '"{0.__class__}".format(42)', api
-            )
+            sanitize_python_to_plan(empty_policy, '"{0.__class__}".format(42)', api)
 
     def test_bytes_decode_method_call(self, empty_policy, api):
         with pytest.raises(PythonDenied):
@@ -288,9 +284,7 @@ class TestAdversarialPythonSandbox:
 
     def test_function_def_hiding_exec(self, empty_policy, api):
         with pytest.raises(PythonDenied, match="FunctionDef"):
-            sanitize_python_to_plan(
-                empty_policy, 'def f(): exec("import os")\nf()', api
-            )
+            sanitize_python_to_plan(empty_policy, 'def f(): exec("import os")\nf()', api)
 
     def test_try_except_catching_errors(self, empty_policy, api):
         with pytest.raises(PythonDenied, match="Try"):
@@ -315,45 +309,31 @@ class TestAdversarialPythonSandbox:
     def test_call_variable_holding_function_name(self, empty_policy, api):
         """e = 'exec'; e('code') — 'e' is not in the call allowlist."""
         with pytest.raises(PythonDenied, match="not allowlisted"):
-            sanitize_python_to_plan(
-                empty_policy, 'e = "exec"\ne("print(1)")', api
-            )
+            sanitize_python_to_plan(empty_policy, 'e = "exec"\ne("print(1)")', api)
 
     def test_subscript_call_denied(self, empty_policy, api):
         """d['fn']() — subscript call is not a direct Name call."""
         with pytest.raises(PythonDenied, match="Only direct function calls"):
-            sanitize_python_to_plan(
-                empty_policy, 'd = {"fn": "val"}\nd["fn"]()', api
-            )
+            sanitize_python_to_plan(empty_policy, 'd = {"fn": "val"}\nd["fn"]()', api)
 
     # -- Constructs that SHOULD be allowed (positive controls) --
 
     def test_walrus_operator_allowed(self, empty_policy, api):
         """NamedExpr (:=) is not in DENY_NODES."""
-        plan = sanitize_python_to_plan(
-            empty_policy, "if (x := 5):\n  y = x", api
-        )
+        plan = sanitize_python_to_plan(empty_policy, "if (x := 5):\n  y = x", api)
         assert ":=" in plan.python_src
 
     def test_list_comprehension_allowed(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, "x = [i for i in range(3)]", api
-        )
+        sanitize_python_to_plan(empty_policy, "x = [i for i in range(3)]", api)
 
     def test_nested_list_comprehension_allowed(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, "x = [[j for j in range(i)] for i in range(3)]", api
-        )
+        sanitize_python_to_plan(empty_policy, "x = [[j for j in range(i)] for i in range(3)]", api)
 
     def test_dict_comprehension_allowed(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, "x = {str(i): i for i in range(3)}", api
-        )
+        sanitize_python_to_plan(empty_policy, "x = {str(i): i for i in range(3)}", api)
 
     def test_set_comprehension_allowed(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, "x = {i for i in range(3)}", api
-        )
+        sanitize_python_to_plan(empty_policy, "x = {i for i in range(3)}", api)
 
     def test_deeply_nested_expression_allowed(self, empty_policy, api):
         expr = "1"
@@ -363,7 +343,7 @@ class TestAdversarialPythonSandbox:
 
     def test_subscript_on_call_result_allowed(self, empty_policy, api):
         """str(42)[0] — subscript on function result."""
-        sanitize_python_to_plan(empty_policy, 'x = str(42)[0]', api)
+        sanitize_python_to_plan(empty_policy, "x = str(42)[0]", api)
 
     def test_multiple_assignment_allowed(self, empty_policy, api):
         sanitize_python_to_plan(empty_policy, "a = b = c = 1", api)
@@ -390,14 +370,10 @@ class TestAdversarialPythonSandbox:
 
     def test_dict_constructor_with_dunder_key_allowed(self, empty_policy, api):
         """dict(__builtins__='evil') just creates a normal dict — harmless."""
-        sanitize_python_to_plan(
-            empty_policy, 'x = dict(__builtins__="evil")', api
-        )
+        sanitize_python_to_plan(empty_policy, 'x = dict(__builtins__="evil")', api)
 
     def test_ternary_expression_allowed(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, "x = 1\ny = 10 if x else 20", api
-        )
+        sanitize_python_to_plan(empty_policy, "x = 1\ny = 10 if x else 20", api)
 
     def test_tuple_packing_allowed(self, empty_policy, api):
         sanitize_python_to_plan(empty_policy, "x = (1, 2, 3)", api)
@@ -409,6 +385,7 @@ class TestAdversarialPythonSandbox:
 # ===================================================================
 # C. Shell injection — shell_sanitizer
 # ===================================================================
+
 
 class TestAdversarialShellInjection:
     """Try every shell injection and evasion technique."""
@@ -510,6 +487,7 @@ class TestAdversarialShellInjection:
 # D. Runtime escapes — executor integration
 # ===================================================================
 
+
 class TestAdversarialRuntimeEscape:
     """Code that passes AST validation but tries to escape at runtime."""
 
@@ -537,7 +515,9 @@ class TestAdversarialRuntimeEscape:
         assert result["ok"] is False
         assert "FsViolation" in result["error"]
 
-    def test_path_loop_construction_escape(self, empty_policy, default_actor, allowed_api, audit_sink):
+    def test_path_loop_construction_escape(
+        self, empty_policy, default_actor, allowed_api, audit_sink
+    ):
         """Build traversal path via a for loop."""
         src = 'p = ""\nfor i in range(5):\n  p = p + "../"\nwrite_text(p + "etc/passwd", "pwned")'
         plan = sanitize_python_to_plan(empty_policy, src, allowed_api)
@@ -565,7 +545,7 @@ class TestAdversarialRuntimeEscape:
         """Build traversal path from list elements."""
         src = (
             'parts = ["../", "../", "../", "etc/passwd"]\n'
-            'p = parts[0] + parts[1] + parts[2] + parts[3]\n'
+            "p = parts[0] + parts[1] + parts[2] + parts[3]\n"
             'write_text(p, "pwned")'
         )
         plan = sanitize_python_to_plan(empty_policy, src, allowed_api)
@@ -630,13 +610,15 @@ class TestAdversarialRuntimeEscape:
                 allowed_api,
             )
 
-    def test_legitimate_operations_still_work(self, empty_policy, default_actor, allowed_api, audit_sink):
+    def test_legitimate_operations_still_work(
+        self, empty_policy, default_actor, allowed_api, audit_sink
+    ):
         """Positive control: legit operations succeed after all the denial tests."""
         src = (
             'mkdir("safe_dir")\n'
             'write_text("safe_dir/data.txt", "hello")\n'
             'content = read_text("safe_dir/data.txt")\n'
-            'print(content)'
+            "print(content)"
         )
         plan = sanitize_python_to_plan(empty_policy, src, allowed_api)
         result = execute_plan(
@@ -649,6 +631,7 @@ class TestAdversarialRuntimeEscape:
 # E. Cross-layer attacks — shell → Python → fs
 # ===================================================================
 
+
 class TestAdversarialCrossLayer:
     """Attacks that span multiple security layers."""
 
@@ -658,52 +641,84 @@ class TestAdversarialCrossLayer:
 
     # -- python3 -c with malicious Python (shell → AST validation) --
 
-    def test_inline_python_import_denied(self, basic_policy, default_actor, allowed_api, audit_sink):
+    def test_inline_python_import_denied(
+        self, basic_policy, default_actor, allowed_api, audit_sink
+    ):
         plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'import os'")
         with pytest.raises(ValidationError, match="AST validation"):
             execute_plan(
-                basic_policy, plan, actor=default_actor,
-                request_id="adv-e1", audit=audit_sink, allowed_api=allowed_api,
+                basic_policy,
+                plan,
+                actor=default_actor,
+                request_id="adv-e1",
+                audit=audit_sink,
+                allowed_api=allowed_api,
             )
 
     def test_inline_python_eval_denied(self, basic_policy, default_actor, allowed_api, audit_sink):
         plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'eval(\"1+1\")'")
         with pytest.raises(ValidationError, match="AST validation"):
             execute_plan(
-                basic_policy, plan, actor=default_actor,
-                request_id="adv-e2", audit=audit_sink, allowed_api=allowed_api,
+                basic_policy,
+                plan,
+                actor=default_actor,
+                request_id="adv-e2",
+                audit=audit_sink,
+                allowed_api=allowed_api,
             )
 
     def test_inline_python_exec_denied(self, basic_policy, default_actor, allowed_api, audit_sink):
-        plan = sanitize_shell_to_plan(basic_policy, 'python3 -c \'exec("import os")\'')
+        plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'exec(\"import os\")'")
         with pytest.raises(ValidationError, match="AST validation"):
             execute_plan(
-                basic_policy, plan, actor=default_actor,
-                request_id="adv-e3", audit=audit_sink, allowed_api=allowed_api,
+                basic_policy,
+                plan,
+                actor=default_actor,
+                request_id="adv-e3",
+                audit=audit_sink,
+                allowed_api=allowed_api,
             )
 
-    def test_inline_python_attribute_access_denied(self, basic_policy, default_actor, allowed_api, audit_sink):
+    def test_inline_python_attribute_access_denied(
+        self, basic_policy, default_actor, allowed_api, audit_sink
+    ):
         plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'x = ().__class__'")
         with pytest.raises(ValidationError, match="AST validation"):
             execute_plan(
-                basic_policy, plan, actor=default_actor,
-                request_id="adv-e4", audit=audit_sink, allowed_api=allowed_api,
+                basic_policy,
+                plan,
+                actor=default_actor,
+                request_id="adv-e4",
+                audit=audit_sink,
+                allowed_api=allowed_api,
             )
 
-    def test_inline_python_dunder_denied(self, basic_policy, default_actor, allowed_api, audit_sink):
+    def test_inline_python_dunder_denied(
+        self, basic_policy, default_actor, allowed_api, audit_sink
+    ):
         plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'x = __builtins__'")
         with pytest.raises(ValidationError, match="AST validation"):
             execute_plan(
-                basic_policy, plan, actor=default_actor,
-                request_id="adv-e5", audit=audit_sink, allowed_api=allowed_api,
+                basic_policy,
+                plan,
+                actor=default_actor,
+                request_id="adv-e5",
+                audit=audit_sink,
+                allowed_api=allowed_api,
             )
 
-    def test_inline_python_fstring_denied(self, basic_policy, default_actor, allowed_api, audit_sink):
+    def test_inline_python_fstring_denied(
+        self, basic_policy, default_actor, allowed_api, audit_sink
+    ):
         plan = sanitize_shell_to_plan(basic_policy, "python3 -c 'x = f\"{1+1}\"'")
         with pytest.raises(ValidationError, match="AST validation"):
             execute_plan(
-                basic_policy, plan, actor=default_actor,
-                request_id="adv-e6", audit=audit_sink, allowed_api=allowed_api,
+                basic_policy,
+                plan,
+                actor=default_actor,
+                request_id="adv-e6",
+                audit=audit_sink,
+                allowed_api=allowed_api,
             )
 
     # -- python3 -c with runtime fs escape --
@@ -713,11 +728,15 @@ class TestAdversarialCrossLayer:
     ):
         """write_text('../../evil.txt', ...) passes AST but fails at runtime."""
         plan = sanitize_shell_to_plan(
-            basic_policy, "python3 -c 'write_text(\"../../evil.txt\", \"pwned\")'"
+            basic_policy, 'python3 -c \'write_text("../../evil.txt", "pwned")\''
         )
         result = execute_plan(
-            basic_policy, plan, actor=default_actor,
-            request_id="adv-e7", audit=audit_sink, allowed_api=allowed_api,
+            basic_policy,
+            plan,
+            actor=default_actor,
+            request_id="adv-e7",
+            audit=audit_sink,
+            allowed_api=allowed_api,
         )
         assert result["return_codes"] == [1]
 
@@ -749,8 +768,11 @@ class TestAdversarialCrossLayer:
         plan = sanitize_shell_to_plan(basic_policy, "echo 'hello;world'")
         with pytest.raises(ValidationError, match="forbidden char"):
             execute_plan(
-                basic_policy, plan, actor=default_actor,
-                request_id="adv-e-deny", audit=audit_sink,
+                basic_policy,
+                plan,
+                actor=default_actor,
+                request_id="adv-e-deny",
+                audit=audit_sink,
             )
 
     def test_pipe_in_quoted_string_denied_at_executor(
@@ -759,15 +781,16 @@ class TestAdversarialCrossLayer:
         plan = sanitize_shell_to_plan(basic_policy, "echo 'hello|world'")
         with pytest.raises(ValidationError, match="forbidden char"):
             execute_plan(
-                basic_policy, plan, actor=default_actor,
-                request_id="adv-e-pipe", audit=audit_sink,
+                basic_policy,
+                plan,
+                actor=default_actor,
+                request_id="adv-e-pipe",
+                audit=audit_sink,
             )
 
     # -- Extension type-checking --
 
-    def test_registered_extension_type_mismatch(
-        self, empty_policy, default_actor, audit_sink
-    ):
+    def test_registered_extension_type_mismatch(self, empty_policy, default_actor, audit_sink):
         """Register str-only function, call with int — type check catches it."""
         api = SafeAPI(workspace_root=empty_policy.workspace_root)
 
@@ -777,11 +800,15 @@ class TestAdversarialCrossLayer:
         api.register("upper_str", only_strings, allowed_arg_types=(str,))
 
         all_names = api.get_all_api_names()
-        src = 'upper_str(42)'
+        src = "upper_str(42)"
         plan = sanitize_python_to_plan(empty_policy, src, all_names)
         result = execute_plan(
-            empty_policy, plan, actor=default_actor,
-            request_id="adv-e-type", audit=audit_sink, safe_api=api,
+            empty_policy,
+            plan,
+            actor=default_actor,
+            request_id="adv-e-type",
+            audit=audit_sink,
+            safe_api=api,
         )
         assert result["ok"] is False
         assert "ApiViolation" in result["error"]

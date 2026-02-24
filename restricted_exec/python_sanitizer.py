@@ -42,16 +42,36 @@ DENY_NODES = (
     ast.MatchClass,
 )
 
-DENY_CALL_NAMES = frozenset({
-    "eval", "exec", "compile", "open", "__import__",
-    "getattr", "setattr", "delattr", "hasattr",
-    "globals", "locals", "vars", "dir",
-    "type", "super", "object",
-    "breakpoint", "exit", "quit",
-    "memoryview", "bytearray", "bytes",
-    "classmethod", "staticmethod", "property",
-    "input",
-})
+DENY_CALL_NAMES = frozenset(
+    {
+        "eval",
+        "exec",
+        "compile",
+        "open",
+        "__import__",
+        "getattr",
+        "setattr",
+        "delattr",
+        "hasattr",
+        "globals",
+        "locals",
+        "vars",
+        "dir",
+        "type",
+        "super",
+        "object",
+        "breakpoint",
+        "exit",
+        "quit",
+        "memoryview",
+        "bytearray",
+        "bytes",
+        "classmethod",
+        "staticmethod",
+        "property",
+        "input",
+    }
+)
 
 
 class _Validator(ast.NodeVisitor):
@@ -123,7 +143,20 @@ def sanitize_python_to_plan(
         raise PythonDenied(f"Python parse failed: {e}") from e
 
     # Merge allowed_api with safe builtins that are allowed as calls
-    allowed_calls = allowed_api | {"len", "range", "min", "max", "sum", "print", "str", "int", "float", "bool", "list", "dict"}
+    allowed_calls = allowed_api | {
+        "len",
+        "range",
+        "min",
+        "max",
+        "sum",
+        "print",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "list",
+        "dict",
+    }
 
     _Validator(allowed_call_names=allowed_calls).visit(tree)
 

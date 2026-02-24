@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import bashlex
 
-from .policy import EnginePolicy, PolicyError
+from .policy import EnginePolicy
 from .fs_sandbox import ensure_under_root
 
 
@@ -32,6 +32,7 @@ class Step:
 @dataclass
 class PythonStep:
     """A step holding inline Python code (from python3 -c '...') for AST-validated execution."""
+
     python_src: str
     redirect: Redirect = field(default_factory=Redirect)
 
@@ -157,7 +158,7 @@ def _compile_command(policy: EnginePolicy, cmd_node: Any) -> Union[Step, PythonS
             path = _word_to_literal(output_node)
             ensure_under_root(policy.workspace_root, path)
             redirect.stdout_path = path
-            redirect.stdout_append = (op == ">>")
+            redirect.stdout_append = op == ">>"
 
         elif part_kind == "assignment":
             raise ShellDenied("Variable assignments are not supported")
@@ -228,9 +229,7 @@ def _compile_python_command(
 
     flag = _word_to_literal(arg_nodes[0])
     if flag != "-c":
-        raise ShellDenied(
-            f"Only '{prog} -c <code>' is allowed; got: {prog} {flag}"
-        )
+        raise ShellDenied(f"Only '{prog} -c <code>' is allowed; got: {prog} {flag}")
 
     if len(arg_nodes) != 2:
         raise ShellDenied(

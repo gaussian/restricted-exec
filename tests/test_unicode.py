@@ -8,7 +8,6 @@ Maps to SECURITY.md: A-11 (bashlex parsing), A-20 (path traversal).
 
 from __future__ import annotations
 
-import pytest
 
 from restricted_exec.policy import ArgSpec, CommandSpec, EnginePolicy
 from restricted_exec.shell_sanitizer import sanitize_shell_to_plan
@@ -40,9 +39,9 @@ class TestUnicodeShellParsing:
     def test_zero_width_joiner_in_shell_word(self, workspace):
         """Zero-width joiner shouldn't affect command parsing."""
         policy = _make_policy(workspace)
-        src = "echo hello\u200Dworld"
+        src = "echo hello\u200dworld"
         plan = sanitize_shell_to_plan(policy, src)
-        assert plan.steps[0].args["value"] == "hello\u200Dworld"
+        assert plan.steps[0].args["value"] == "hello\u200dworld"
 
     def test_homograph_latin_vs_cyrillic_a(self, workspace):
         """Cyrillic 'а' (U+0430) vs Latin 'a' — different characters."""
@@ -57,13 +56,13 @@ class TestUnicodePathTraversal:
 
     def test_zero_width_space_in_path(self, workspace):
         """Zero-width space in a path is preserved by realpath."""
-        path = "sub\u200Bdir/file.txt"
+        path = "sub\u200bdir/file.txt"
         resolved = ensure_under_root(workspace, path)
         assert resolved.startswith(workspace)
 
     def test_rtl_override_in_path(self, workspace):
         """RTL override character in path doesn't escape workspace."""
-        path = "sub\u202Edir/file.txt"
+        path = "sub\u202edir/file.txt"
         resolved = ensure_under_root(workspace, path)
         assert resolved.startswith(workspace)
 

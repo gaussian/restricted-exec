@@ -74,7 +74,7 @@ class TestSafeAPIHttp:
 
     def test_allows_empty_allowlist(self, workspace):
         # Empty allowlist means all https hosts are allowed
-        api = SafeAPI(workspace_root=workspace, http_allow_hosts=set())
+        SafeAPI(workspace_root=workspace, http_allow_hosts=set())
         # We don't actually make the request here (network), just verify no ApiViolation
         # for the host check. The actual request will fail with connection error.
         # This is tested in integration tests (examples/).

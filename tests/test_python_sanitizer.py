@@ -58,19 +58,13 @@ class TestPythonAllowed:
         sanitize_python_to_plan(empty_policy, "x = 1\nif x:\n  y = 2", api)
 
     def test_if_else(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, "x = 1\nif x:\n  y = 2\nelse:\n  y = 3", api
-        )
+        sanitize_python_to_plan(empty_policy, "x = 1\nif x:\n  y = 2\nelse:\n  y = 3", api)
 
     def test_for_loop(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, "for i in range(3):\n  print(i)", api
-        )
+        sanitize_python_to_plan(empty_policy, "for i in range(3):\n  print(i)", api)
 
     def test_while_loop(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, "x = 3\nwhile x:\n  x = x - 1", api
-        )
+        sanitize_python_to_plan(empty_policy, "x = 3\nwhile x:\n  x = x - 1", api)
 
     def test_builtin_len(self, empty_policy, api):
         sanitize_python_to_plan(empty_policy, 'x = len("hello")', api)
@@ -79,22 +73,16 @@ class TestPythonAllowed:
         sanitize_python_to_plan(empty_policy, "x = range(10)", api)
 
     def test_builtin_min_max_sum(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, "a = min(1,2)\nb = max(1,2)\nc = sum([1,2])", api
-        )
+        sanitize_python_to_plan(empty_policy, "a = min(1,2)\nb = max(1,2)\nc = sum([1,2])", api)
 
     def test_builtin_print(self, empty_policy, api):
         sanitize_python_to_plan(empty_policy, 'print("hello")', api)
 
     def test_builtin_type_conversions(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, 'x = str(42)\ny = int("7")\nz = float("3.14")', api
-        )
+        sanitize_python_to_plan(empty_policy, 'x = str(42)\ny = int("7")\nz = float("3.14")', api)
 
     def test_nested_calls(self, empty_policy, api):
-        sanitize_python_to_plan(
-            empty_policy, 'write_text("f.txt", str(len("hello")))', api
-        )
+        sanitize_python_to_plan(empty_policy, 'write_text("f.txt", str(len("hello")))', api)
 
     def test_arithmetic(self, empty_policy, api):
         sanitize_python_to_plan(empty_policy, "x = 1 + 2 * 3 - 4 / 2", api)
@@ -240,21 +228,15 @@ class TestPythonDenied:
 
     def test_with_statement(self, empty_policy, api):
         with pytest.raises(PythonDenied, match="With"):
-            sanitize_python_to_plan(
-                empty_policy, 'with open("f") as f:\n  pass', api
-            )
+            sanitize_python_to_plan(empty_policy, 'with open("f") as f:\n  pass', api)
 
     def test_try_except(self, empty_policy, api):
         with pytest.raises(PythonDenied, match="Try"):
-            sanitize_python_to_plan(
-                empty_policy, "try:\n  x=1\nexcept:\n  pass", api
-            )
+            sanitize_python_to_plan(empty_policy, "try:\n  x=1\nexcept:\n  pass", api)
 
     def test_raise(self, empty_policy, api):
         with pytest.raises(PythonDenied, match="Raise"):
-            sanitize_python_to_plan(
-                empty_policy, 'raise Exception("oops")', api
-            )
+            sanitize_python_to_plan(empty_policy, 'raise Exception("oops")', api)
 
     def test_assert(self, empty_policy, api):
         with pytest.raises(PythonDenied, match="Assert"):
@@ -298,7 +280,7 @@ class TestPythonEscapeAttempts:
         with pytest.raises(PythonDenied):
             sanitize_python_to_plan(
                 empty_policy,
-                '().__class__.__bases__[0].__subclasses__()',
+                "().__class__.__bases__[0].__subclasses__()",
                 api,
             )
 

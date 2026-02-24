@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import functools
 import json
 import os
 import re
-import signal
 import urllib.request
 from typing import Any, Callable, Dict, Optional, Sequence, Type
 
@@ -16,11 +14,29 @@ class ApiViolation(Exception):
 
 
 # Builtins that must never be shadowed by registered functions
-_RESERVED_NAMES = frozenset({
-    "True", "False", "None", "len", "range", "min", "max", "sum", "print",
-    "eval", "exec", "compile", "open", "__import__",
-    "mkdir", "write_text", "write_json", "read_text", "http_get",
-})
+_RESERVED_NAMES = frozenset(
+    {
+        "True",
+        "False",
+        "None",
+        "len",
+        "range",
+        "min",
+        "max",
+        "sum",
+        "print",
+        "eval",
+        "exec",
+        "compile",
+        "open",
+        "__import__",
+        "mkdir",
+        "write_text",
+        "write_json",
+        "read_text",
+        "http_get",
+    }
+)
 
 _VALID_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
@@ -63,9 +79,7 @@ class _RegisteredFunc:
             raise
         except Exception as e:
             # Sanitize exception — don't leak internals
-            raise ApiViolation(
-                f"{self.name} failed: {type(e).__name__}"
-            ) from None
+            raise ApiViolation(f"{self.name} failed: {type(e).__name__}") from None
 
 
 class SafeAPI:
@@ -109,9 +123,7 @@ class SafeAPI:
             description: Human-readable description for audit/explain
         """
         if not _VALID_NAME_RE.match(name):
-            raise ApiViolation(
-                f"Invalid function name '{name}': must match [a-z_][a-z0-9_]*"
-            )
+            raise ApiViolation(f"Invalid function name '{name}': must match [a-z_][a-z0-9_]*")
         if name in _RESERVED_NAMES:
             raise ApiViolation(f"Cannot shadow reserved name: {name}")
         if name in self._registered:

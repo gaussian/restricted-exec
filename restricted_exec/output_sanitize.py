@@ -10,9 +10,7 @@ REDACTION_RULES: List[Tuple[str, re.Pattern]] = [
     ("BASIC", re.compile(r"\bBasic\s+[A-Za-z0-9\+\/]+=*\b")),
     (
         "JWT",
-        re.compile(
-            r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
-        ),
+        re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
     ),
     (
         "PRIVATE_KEY",
@@ -23,9 +21,7 @@ REDACTION_RULES: List[Tuple[str, re.Pattern]] = [
     ),
     (
         "GENERIC_KV_TOKEN",
-        re.compile(
-            r"\b(token|api[_-]?key)\b\s*[:=]\s*([^\s'\"\\]{8,})", re.IGNORECASE
-        ),
+        re.compile(r"\b(token|api[_-]?key)\b\s*[:=]\s*([^\s'\"\\]{8,})", re.IGNORECASE),
     ),
 ]
 
