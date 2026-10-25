@@ -9,6 +9,7 @@
 
 - Run tests with: `uv run pytest tests/ -v`
 - Lint + format: `uv run --all-extras ruff check restricted_exec/ tests/` and `ruff format --check restricted_exec/ tests/`
+- Dependency cooldown: the 7-day cooldown is `exclude-newer` under `[tool.uv]` in `pyproject.toml`. Urgent fix: add `<pkg> = false` under `exclude-newer-package`, run `uv lock --upgrade-package <pkg>`, and remove the exemption once the release is over 7 days old.
 
 ## Opening PRs & versioning
 
