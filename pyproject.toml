@@ -1,6 +1,6 @@
 [project]
 name = "restricted-exec"
-version = "0.1.4"
+version = "0.1.5"
 description = "Restrictive shell/Python sanitizer + plan compiler + optional executor (no-shell)."
 requires-python = ">=3.11"
 dependencies = [
@@ -27,3 +27,7 @@ ignore = ["F401", "F841"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F403"]
+
+[tool.uv]
+# Dependency cooldown: never resolve a release under 7 days old.
+exclude-newer = "7 days"
