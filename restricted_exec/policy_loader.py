@@ -3,7 +3,7 @@ Secure policy loading and extension mechanism.
 
 Loads CommandSpec definitions from TOML files with strict validation:
 - exec_path must be absolute and exist on disk
-- exec_path must be in an allowed directory prefix
+- exec_path must resolve (realpath, following symlinks) into an allowed directory
 - arg_map format strings are validated for injection
 - regex patterns are validated and length-bounded
 - policies can only ADD commands, not override existing ones
@@ -35,6 +35,10 @@ DEFAULT_ALLOWED_EXEC_DIRS: List[str] = [
     "/usr/local/bin",
     "/sbin",
     "/usr/sbin",
+    # Ubuntu 25.10+ ships uutils coreutils: /usr/bin/echo etc. are symlinks into
+    # /usr/lib/cargo/bin/coreutils/ (root-owned, dpkg-managed). exec_path is
+    # resolved with realpath() before this check, so the target dir must be listed.
+    "/usr/lib/cargo/bin",
 ]
 
 # Maximum allowed values for safety

@@ -8,6 +8,7 @@ import pytest
 
 from restricted_exec.policy import EnginePolicy, CommandSpec, ArgSpec
 from restricted_exec.policy_loader import (
+    DEFAULT_ALLOWED_EXEC_DIRS,
     PolicyLoadError,
     load_policy_file,
     merge_policies,
@@ -164,6 +165,10 @@ timeout_s = 5
         policy = load_policy_file(path, allowed_exec_dirs=[str(tmp_path)])
         assert "custom" in policy.commands
 
+    def test_custom_exec_dirs_replace_defaults(self, valid_toml, tmp_path):
+        with pytest.raises(PolicyLoadError, match="not in allowed directories"):
+            load_policy_file(valid_toml, allowed_exec_dirs=[str(tmp_path)])
+
     def test_rejects_excessive_timeout(self, tmp_path):
         path = str(tmp_path / "bad.toml")
         with open(path, "w") as f:
@@ -281,6 +286,60 @@ nonexistent = ["{nonexistent}"]
 """)
         with pytest.raises(PolicyLoadError, match="unknown arg"):
             load_policy_file(path)
+
+
+def _write_single_command_policy(path, exec_path: str) -> str:
+    with open(path, "w") as f:
+        f.write(f"""\
+[meta]
+policy_id = "symlinked"
+version = "0.1"
+
+[commands.echo]
+description = "Echo via a symlinked exec_path"
+exec_path = "{exec_path}"
+base_argv = []
+timeout_s = 5
+""")
+    return str(path)
+
+
+class TestSymlinkedExecPath:
+    """The realpath() target of a symlinked exec_path must be allowed (simulates
+    Ubuntu 25.10+ uutils: /usr/bin/echo -> ../lib/cargo/bin/coreutils/echo)."""
+
+    @staticmethod
+    def _multicall_layout(root):
+        usr_bin = root / "usr" / "bin"
+        cargo_bin = root / "usr" / "lib" / "cargo" / "bin"
+        usr_bin.mkdir(parents=True)
+        (cargo_bin / "coreutils").mkdir(parents=True)
+        target = cargo_bin / "coreutils" / "echo"
+        target.write_text("#!/bin/sh\necho multicall\n")
+        target.chmod(0o755)
+        os.symlink("../lib/cargo/bin/coreutils/echo", usr_bin / "echo")
+        return usr_bin, cargo_bin
+
+    def test_defaults_include_uutils_dir(self):
+        assert "/usr/lib/cargo/bin" in DEFAULT_ALLOWED_EXEC_DIRS
+
+    def test_symlink_into_allowed_target_dir_loads(self, tmp_path):
+        usr_bin, cargo_bin = self._multicall_layout(tmp_path)
+        exe = str(usr_bin / "echo")
+        path = _write_single_command_policy(tmp_path / "p.toml", exe)
+
+        policy = load_policy_file(path, allowed_exec_dirs=[str(usr_bin), str(cargo_bin)])
+
+        # Stored unresolved: symlink-dispatched multicall binaries (busybox) need argv[0].
+        assert policy.commands["echo"].exec_path == exe
+
+    def test_symlink_target_outside_allowed_dirs_rejected(self, tmp_path):
+        """Guard for the resolve-then-check design: a symlink sitting in an allowed
+        dir must not launder a binary from a directory that is not allowed."""
+        usr_bin, _ = self._multicall_layout(tmp_path)
+        path = _write_single_command_policy(tmp_path / "p.toml", str(usr_bin / "echo"))
+        with pytest.raises(PolicyLoadError, match="not in allowed directories"):
+            load_policy_file(path, allowed_exec_dirs=[str(usr_bin)])
 
 
 class TestMergePolicies:
