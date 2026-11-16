@@ -490,7 +490,7 @@ layer; OS sandbox should handle that."
 
 ### Default Allowed Executable Directories
 
-`policy_loader.py:33-39` defines the default exec path whitelist:
+`policy_loader.py:32-42` defines the default exec path whitelist:
 
 | Directory | Contents |
 |-----------|----------|
@@ -499,8 +499,14 @@ layer; OS sandbox should handle that."
 | `/usr/local/bin` | Locally installed binaries |
 | `/sbin` | System administration binaries |
 | `/usr/sbin` | System administration binaries |
+| `/usr/lib/cargo/bin` | uutils coreutils on Ubuntu 25.10+ (`/usr/bin/echo` → `/usr/lib/cargo/bin/coreutils/echo`) |
 
-These can be overridden via `allowed_exec_dirs` parameter. Note that `/sbin` and
+`exec_path` is resolved with `realpath()` before this check, so a symlink in an allowed
+directory is accepted only if its *target* is also in an allowed directory. This is why
+`/usr/lib/cargo/bin` is listed: it is root-owned and package-managed, same trust as `/usr/bin`.
+
+These can be overridden via `allowed_exec_dirs` parameter; a caller-supplied list
+**replaces** the defaults, so include `/usr/lib/cargo/bin` when targeting Ubuntu 25.10+. Note that `/sbin` and
 `/usr/sbin` include system administration tools — operators should consider whether
 these are needed.
 

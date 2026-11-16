@@ -172,7 +172,9 @@ merged = merge_policies(base_policy, extension)
 ```
 
 Validation enforced on load:
-- `exec_path` must be absolute, exist, and be in an allowed directory
+- `exec_path` must be absolute, exist, and resolve (after symlinks) into an allowed directory
+  (default: `/bin`, `/usr/bin`, `/usr/local/bin`, `/sbin`, `/usr/sbin`, `/usr/lib/cargo/bin`;
+  a custom `allowed_exec_dirs` list replaces the defaults)
 - Format strings are parsed and validated (no injection)
 - Regex patterns are validated and length-bounded
 - Extensions can only **add** commands, not override existing ones

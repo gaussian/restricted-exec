@@ -35,6 +35,10 @@ DEFAULT_ALLOWED_EXEC_DIRS: List[str] = [
     "/usr/local/bin",
     "/sbin",
     "/usr/sbin",
+    # Ubuntu 25.10+ ships uutils coreutils: /usr/bin/echo etc. are symlinks into
+    # /usr/lib/cargo/bin/coreutils/ (root-owned, dpkg-managed). exec_path is
+    # resolved with realpath() before this check, so the target dir must be listed.
+    "/usr/lib/cargo/bin",
 ]
 
 # Maximum allowed values for safety
