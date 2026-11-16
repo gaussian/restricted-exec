@@ -182,9 +182,9 @@ injection methods.
 |-----------|----------|---------|------------|
 | Filesystem sandbox | `fs_sandbox.py:10-22` | `realpath()` + prefix check prevents `../` escapes | TOCTOU race (F-01) |
 | Output sanitization | `output_sanitize.py:33-76` | Strips ANSI, redacts secrets, truncates to 50K chars | Regex-based; not exhaustive (F-09) |
-| HMAC policy verification | `policy_loader.py:206-222` | SHA-256 HMAC on policy file content | Optional; sig file stored alongside |
-| Policy merge protection | `policy_loader.py:282-308` | Prevents command override by default | `allow_override=True` bypasses |
-| Exec path validation | `policy_loader.py:49-76` | Absolute, exists, executable, in allowed dir | Checked at load time only |
+| HMAC policy verification | `policy_loader.py:202-218` | SHA-256 HMAC on policy file content | Optional; sig file stored alongside |
+| Policy merge protection | `policy_loader.py:278-311` | Prevents command override by default | `allow_override=True` bypasses |
+| Exec path validation | `policy_loader.py:52-78` | Absolute, exists, executable, in allowed dir | Checked at load time only |
 | Python-in-shell interception | `shell_sanitizer.py:174-241` | Routes `python3 -c` through AST validator | Only `-c` form; piped Python denied |
 | Audit logging | `audit.py:30-36` | JSON events with request correlation | Default sink prints to stdout |
 
@@ -420,7 +420,7 @@ is necessary for `python3 -c 'x = 2 * 3'` to work.
 | `SafeAPI.write_text()` | `safe_api.py:178-183` | `ensure_under_root()` at call time | Yes |
 | `SafeAPI.write_json()` | `safe_api.py:185-186` | Via `write_text()` | Yes |
 | `SafeAPI.read_text()` | `safe_api.py:188-191` | `ensure_under_root()` at call time | Yes |
-| Policy `exec_path` check | `policy_loader.py:49-76` | `realpath()` + exists + executable + allowed dir | No (load time only) |
+| Policy `exec_path` check | `policy_loader.py:52-78` | `realpath()` + exists + executable + allowed dir | No (load time only) |
 
 ### `ensure_under_root()` Implementation
 
@@ -461,21 +461,21 @@ layer; OS sandbox should handle that."
 
 | Check | Location | What It Validates | Failure Mode |
 |-------|----------|-------------------|--------------|
-| `policy_id` required | `policy_loader.py:257` | Meta section completeness | `PolicyLoadError` |
-| `version` required | `policy_loader.py:257` | Meta section completeness | `PolicyLoadError` |
-| Command ID format | `policy_loader.py:148-149` | `[a-zA-Z0-9_\-]+`, max 64 chars | `PolicyLoadError` |
-| `exec_path` absolute | `policy_loader.py:54-55` | Starts with `/` | `PolicyLoadError` |
-| `exec_path` exists | `policy_loader.py:59-60` | `os.path.isfile()` on resolved path | `PolicyLoadError` |
-| `exec_path` executable | `policy_loader.py:62-63` | `os.access(X_OK)` | `PolicyLoadError` |
-| `exec_path` in allowed dir | `policy_loader.py:66-76` | Prefix check against allowed dirs | `PolicyLoadError` |
-| `timeout_s` range | `policy_loader.py:162-164` | 1 to 300 | `PolicyLoadError` |
-| Arg kind valid | `policy_loader.py:116-117` | Must be `string`, `enum`, or `int` | `PolicyLoadError` |
-| Regex pattern valid | `policy_loader.py:101-110` | Compiles; max 500 chars | `PolicyLoadError` |
-| `max_len` cap | `policy_loader.py:124-125` | Max 10,000 | `PolicyLoadError` |
-| Format string valid | `policy_loader.py:79-98` | Only expected field name; max 256 chars | `PolicyLoadError` |
-| `arg_map` references valid args | `policy_loader.py:183-186` | Key exists in args dict | `PolicyLoadError` |
-| HMAC signature | `policy_loader.py:206-222` | SHA-256 HMAC (optional) | `PolicyLoadError` |
-| Merge override protection | `policy_loader.py:305-308` | Cannot override unless `allow_override=True` | `PolicyLoadError` |
+| `policy_id` required | `policy_loader.py:253-254` | Meta section completeness | `PolicyLoadError` |
+| `version` required | `policy_loader.py:253-254` | Meta section completeness | `PolicyLoadError` |
+| Command ID format | `policy_loader.py:148-151` | `[a-zA-Z0-9_\-]+`, max 64 chars | `PolicyLoadError` |
+| `exec_path` absolute | `policy_loader.py:57-58` | Starts with `/` | `PolicyLoadError` |
+| `exec_path` exists | `policy_loader.py:62-63` | `os.path.isfile()` on resolved path | `PolicyLoadError` |
+| `exec_path` executable | `policy_loader.py:65-66` | `os.access(X_OK)` | `PolicyLoadError` |
+| `exec_path` in allowed dir | `policy_loader.py:69-78` | Prefix check against allowed dirs | `PolicyLoadError` |
+| `timeout_s` range | `policy_loader.py:163-165` | 1 to 300 | `PolicyLoadError` |
+| Arg kind valid | `policy_loader.py:118-119` | Must be `string`, `enum`, or `int` | `PolicyLoadError` |
+| Regex pattern valid | `policy_loader.py:103-112` | Compiles; max 500 chars | `PolicyLoadError` |
+| `max_len` cap | `policy_loader.py:126-127` | Max 10,000 | `PolicyLoadError` |
+| Format string valid | `policy_loader.py:81-100` | Only expected field name; max 256 chars | `PolicyLoadError` |
+| `arg_map` references valid args | `policy_loader.py:183-188` | Key exists in args dict | `PolicyLoadError` |
+| HMAC signature | `policy_loader.py:202-218` | SHA-256 HMAC (optional) | `PolicyLoadError` |
+| Merge override protection | `policy_loader.py:301-302` | Cannot override unless `allow_override=True` | `PolicyLoadError` |
 
 ### HMAC Analysis
 
@@ -501,24 +501,23 @@ layer; OS sandbox should handle that."
 | `/usr/sbin` | System administration binaries |
 | `/usr/lib/cargo/bin` | uutils coreutils on Ubuntu 25.10+ (`/usr/bin/echo` → `/usr/lib/cargo/bin/coreutils/echo`) |
 
-`exec_path` is resolved with `realpath()` before this check, so a symlink in an allowed
-directory is accepted only if its *target* is also in an allowed directory. This is why
-`/usr/lib/cargo/bin` is listed: it is root-owned and package-managed, same trust as `/usr/bin`.
+`exec_path` is resolved with `realpath()` before this check, so a symlink is accepted
+only if its *target* is in an allowed directory. `/usr/lib/cargo/bin` is root-owned and
+package-managed, the same trust as `/usr/bin`.
 
-These can be overridden via `allowed_exec_dirs` parameter; a caller-supplied list
-**replaces** the defaults, so include `/usr/lib/cargo/bin` when targeting Ubuntu 25.10+. Note that `/sbin` and
-`/usr/sbin` include system administration tools — operators should consider whether
-these are needed.
+A non-empty `allowed_exec_dirs` **replaces** these defaults (an empty list falls back to
+them). Note that `/sbin` and `/usr/sbin` include system administration tools — operators
+should consider whether these are needed.
 
 ### Policy Limits
 
 | Limit | Value | Location |
 |-------|-------|----------|
-| `MAX_TIMEOUT_S` | 300 seconds | `policy_loader.py:42` |
-| `MAX_ARG_REGEX_LEN` | 500 characters | `policy_loader.py:43` |
-| `MAX_ARG_MAX_LEN` | 10,000 characters | `policy_loader.py:44` |
-| `MAX_COMMAND_ID_LEN` | 64 characters | `policy_loader.py:45` |
-| `MAX_FORMAT_STRING_LEN` | 256 characters | `policy_loader.py:46` |
+| `MAX_TIMEOUT_S` | 300 seconds | `policy_loader.py:45` |
+| `MAX_ARG_REGEX_LEN` | 500 characters | `policy_loader.py:46` |
+| `MAX_ARG_MAX_LEN` | 10,000 characters | `policy_loader.py:47` |
+| `MAX_COMMAND_ID_LEN` | 64 characters | `policy_loader.py:48` |
+| `MAX_FORMAT_STRING_LEN` | 256 characters | `policy_loader.py:49` |
 | `max_pipeline_steps` | 8 (default) | `policy.py:42` |
 
 ---

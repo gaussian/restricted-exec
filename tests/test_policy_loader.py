@@ -165,6 +165,10 @@ timeout_s = 5
         policy = load_policy_file(path, allowed_exec_dirs=[str(tmp_path)])
         assert "custom" in policy.commands
 
+    def test_custom_exec_dirs_replace_defaults(self, valid_toml, tmp_path):
+        with pytest.raises(PolicyLoadError, match="not in allowed directories"):
+            load_policy_file(valid_toml, allowed_exec_dirs=[str(tmp_path)])
+
     def test_rejects_excessive_timeout(self, tmp_path):
         path = str(tmp_path / "bad.toml")
         with open(path, "w") as f:
@@ -301,26 +305,18 @@ timeout_s = 5
 
 
 class TestSymlinkedExecPath:
-    """exec_path that is a symlink: the *resolved* target must be in an allowed dir.
-
-    Mirrors Ubuntu 25.10+ uutils coreutils, a multicall binary:
-      /usr/bin/echo -> ../lib/cargo/bin/coreutils/echo   (relative symlink)
-      /usr/lib/cargo/bin/coreutils/echo                  (hard link to the multicall binary)
-    Simulated under tmp_path so the tests behave the same on any host.
-    """
+    """The realpath() target of a symlinked exec_path must be allowed (simulates
+    Ubuntu 25.10+ uutils: /usr/bin/echo -> ../lib/cargo/bin/coreutils/echo)."""
 
     @staticmethod
     def _multicall_layout(root):
-        """Build <root>/usr/bin/echo -> ../lib/cargo/bin/coreutils/echo."""
         usr_bin = root / "usr" / "bin"
         cargo_bin = root / "usr" / "lib" / "cargo" / "bin"
-        cu_dir = cargo_bin / "coreutils"
         usr_bin.mkdir(parents=True)
-        cu_dir.mkdir(parents=True)
-        multicall = cu_dir / "coreutils"
-        multicall.write_text("#!/bin/sh\necho multicall\n")
-        multicall.chmod(0o755)
-        os.link(multicall, cu_dir / "echo")
+        (cargo_bin / "coreutils").mkdir(parents=True)
+        target = cargo_bin / "coreutils" / "echo"
+        target.write_text("#!/bin/sh\necho multicall\n")
+        target.chmod(0o755)
         os.symlink("../lib/cargo/bin/coreutils/echo", usr_bin / "echo")
         return usr_bin, cargo_bin
 
@@ -334,7 +330,7 @@ class TestSymlinkedExecPath:
 
         policy = load_policy_file(path, allowed_exec_dirs=[str(usr_bin), str(cargo_bin)])
 
-        # The unresolved path is kept: multicall binaries dispatch on argv[0].
+        # Stored unresolved: symlink-dispatched multicall binaries (busybox) need argv[0].
         assert policy.commands["echo"].exec_path == exe
 
     def test_symlink_target_outside_allowed_dirs_rejected(self, tmp_path):
