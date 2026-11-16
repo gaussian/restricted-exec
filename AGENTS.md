@@ -8,7 +8,8 @@
 ## Testing
 
 - Run tests with: `uv run pytest tests/ -v`
-- Lint + format: `uv run --all-extras ruff check restricted_exec/ tests/` and `ruff format --check restricted_exec/ tests/`
+- Lint + format: `uv run --all-extras ruff check restricted_exec/ tests/` and `uv run --all-extras ruff format --check restricted_exec/ tests/`
+- Type-check: none — no type checker is configured for this repo.
 - Dependency cooldown: the 7-day cooldown is `exclude-newer` under `[tool.uv]` in `pyproject.toml`. Urgent fix: add `<pkg> = false` under `exclude-newer-package`, run `uv lock --upgrade-package <pkg>`, and remove the exemption once the release is over 7 days old.
 
 ## Opening PRs & versioning
@@ -18,5 +19,6 @@ The version is a static string in `pyproject.toml` + `uv.lock` and is **not**
 bumped automatically on merge — it must be bumped deliberately, or no release is
 cut. Publishing to PyPI is automatic once a `develop` → `main` PR merges.
 
-**Follow the `create-merge-pr` skill** (`.agents/skills/create-merge-pr/`) for the
-full PR workflow, including when and how to bump the version.
+**Follow the `create-merge-pr` skill** (the machine-wide skill, installed by
+lobster into `~/.agents/skills/create-merge-pr/`) for the full PR workflow,
+including when and how to bump the version.
